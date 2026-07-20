@@ -1,0 +1,5367 @@
+openapi: 3.0.3
+info:
+  title: Swamedia Portal API
+  description:
+    'Spesifikasi gabungan untuk Swamedia Portal: Auth BFF API dan Master Data API.
+
+
+    AUTH BFF API:
+
+    Backend-for-Frontend facade over WSO2 Identity Server. The frontend only ever calls these endpoints; the Ballerina backend alone talks to WSO2 IS (URLs, client_id, client_secret, flowId and authorization codes never reach the frontend).
+
+
+    MASTER DATA API:
+
+    Spesifikasi gabungan (bundle) seluruh endpoint `/api/v1/master/*` -- Unit, Industri, Tags, Resource Tags, Kategori Surat, Karyawan, Customer, Contact. File INI (bukan file per-modul di folder yang sama) yang dipakai untuk import ke WSO2 API Manager (APIM) Publisher sebagai satu API "Master Data", karena seluruhnya dipublikasikan dari satu service group Ballerina yang sama dengan proteksi JWT yang identik.
+
+
+    ARSITEKTUR: Backend ini adalah BFF (Backend-For-Frontend) di depan WSO2 Identity Server (IS) untuk auth, dan dipublikasikan lewat WSO2 API Manager (APIM) sebagai API Gateway. Alur request: Frontend -> WSO2 APIM -> Ballerina. Frontend mengirim DUA header kredensial: `Authorization: Bearer <access_token>` (Access Token WSO2 IS) dan `apikey` (API Key APIM). APIM memvalidasi API Key untuk meneruskan request; Ballerina memvalidasi Access Token lewat JWKS untuk autentikasi & otorisasi pengguna. Header `apikey` TIDAK didefinisikan di kontrak OpenAPI ini -- itu dikonfigurasi di level APIM, bukan di kontrak service ini.
+
+
+    RESPONSE STANDARD: Semua response (sukses maupun error, 200/201/400/401/403/404/409/ 500) dibungkus SATU amplop `ApiResponse` yang sama (`components/schemas/ApiResponse`), sesuai README.md Bab 5 "API Response Standard". `data` bervariasi bentuknya per operasi -- lihat `example`/`examples` pada setiap response.
+
+
+    CATATAN 401 (TERKONFIRMASI lewat pengujian): ada DUA bentuk body 401 yang berbeda. (1) Penolakan oleh guard `@http:ServiceConfig` (Bearer token tidak ada/tidak valid/ kedaluwarsa) terjadi SEBELUM resource function dijalankan -- Ballerina mengembalikan format bawaan framework (`FrameworkErrorResponse`), BUKAN amplop `ApiResponse`. Sudah diuji langsung terhadap versi `ballerina/http` yang dipakai proyek ini: baik `http:RequestErrorInterceptor` maupun `http:ResponseInterceptor` TIDAK dapat menangkap/menormalkan kasus ini -- penolakan auth dikirim lewat interop native ke `http:Caller`, memotong seluruh pipeline interceptor Ballerina. Ini kasus 401 yang paling sering terjadi di praktik. (2) Kegagalan di `subjectFromAccessToken()` pada endpoint POST/PUT/DELETE (jarang terjadi, defensif) -- kasus ini MEMANG mengembalikan amplop `ApiResponse` standar. FE WAJIB menangani kedua bentuk untuk status 401 (lihat `components.responses.Unauthorized`); rekomendasi: cabang logika "belum terautentikasi"
+    di FE sebaiknya berdasarkan HTTP status code 401 saja, bukan mengasumsikan bentuk body.
+
+
+    CATATAN KEAMANAN -- Karyawan.subjectId: field ini menautkan karyawan ke identitas WSO2 IS dan bersifat sensitif -- tidak pernah muncul di response LIST (`KaryawanListItem`), hanya di response DETAIL (`KaryawanDetail`); keunikannya dicek manual di service (409 CONFLICT bila bentrok); modul Karyawan idealnya dibatasi Role Admin di masa depan (role-based access control belum diterapkan di layer ini).'
+  version: 1.0.0
+servers:
+  - url: http://localhost:8080
+    description: Local development
+tags:
+  - name: Auth
+    description: WSO2 IS authentication/session endpoints
+  - name: Unit
+    description: Master data unit organisasi
+  - name: Industri
+    description: Master data industri
+  - name: Tags
+    description: Master data label/tag untuk Proyek
+  - name: Resource Tags
+    description: Master data label/tag untuk Resource Unit
+  - name: Kategori Surat
+    description: Master jenis surat (DR-01..DR-09)
+  - name: Karyawan
+    description: Master data karyawan
+  - name: Customer
+    description: Master data customer
+  - name: Contact
+    description: Master data kontak person milik Customer
+  - name: Dashboard
+    description: Ringkasan KPI sebelum login
+  - name: Business
+    description: Endpoint business/e-office yang tetap diproteksi JWT
+  - name: Daftar Surat
+    description: Master data nomor_surat untuk modul e-Office
+  - name: Proyek
+    description: Dropdown proyek untuk form Daftar Surat
+security:
+  - bearerAuth: []
+paths:
+  /api/v1/auth/init:
+    post:
+      tags:
+        - Auth
+      summary: Start the authentication flow
+      description: Wraps WSO2 IS `POST /oauth2/authorize`. Returns a flowId and the authenticators available for that flow. Optional — the frontend can just call `/auth/login` directly for the standard username/password flow.
+      responses:
+        '200':
+          description: Flow started
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/InitApiResponse'
+              example:
+                success: true
+                message: Flow autentikasi berhasil dimulai
+                data:
+                  flowId: e743338d-adb3-47a9-8158-72b8f4efcaca
+                  authenticators:
+                    - authenticatorId: QmFzaWNBdXRoZW50aWNhdG9yOkxPQ0FM
+                      authenticator: Username & Password
+                      idp: LOCAL
+                      metadata:
+                        i18nKey: authenticator.basic
+                        promptType: USER_PROMPT
+                      requiredParams:
+                        - username
+                        - password
+                    - authenticatorId: R29vZ2xlT0lEQzpHb29nbGU
+                      authenticator: Google
+                      idp: Google
+                      metadata:
+                        i18nKey: authenticator.google
+                errors: null
+                meta:
+                  timestamp: '2026-07-03T09:15:32Z'
+        '500':
+          description: Failed to start the flow (WSO2 IS unreachable or misconfigured)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiErrorResponse'
+              example:
+                success: false
+                message: Terjadi kesalahan pada server, silakan coba lagi nanti
+                data: null
+                errors:
+                  code: INTERNAL_ERROR
+                  message: Terjadi kesalahan pada server, silakan coba lagi nanti
+                  details: null
+                meta:
+                  timestamp: '2026-07-03T09:15:32Z'
+      security: []
+  /api/v1/auth/login:
+    post:
+      tags:
+        - Auth
+      summary: Log in with username and password
+      description: Runs the full WSO2 IS flow server-side (init -> authenticate -> token exchange) and returns the token set plus the decoded id_token claims as `user`.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/LoginRequest'
+            example:
+              username: admin
+              password: '!AdminSWA123#'
+      responses:
+        '200':
+          description: Login succeeded
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/LoginApiResponse'
+              example:
+                success: true
+                message: Login berhasil
+                data:
+                  accessToken: eyJhbGciOiJSUzI1NiJ9.example-access-token-payload.example-signature
+                  refreshToken: a962fcbf-b301-3948-a29f-22202bfb5923
+                  idToken: eyJhbGciOiJSUzI1NiJ9.example-id-token-payload.example-signature
+                  tokenType: Bearer
+                  expiresIn: 3600
+                  scope: internal_login openid
+                  user:
+                    sub: 2986721c-0cc2-42ba-91f2-95c00ae7e8b9
+                    iss: https://iam.apicentrum.biz.id/oauth2/token
+                    org_name: Super
+                    exp: 1783070533
+                    iat: 1783066933
+                errors: null
+                meta:
+                  timestamp: '2026-07-03T09:15:32Z'
+        '400':
+          description: Malformed request body (missing/invalid JSON fields)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RequestBindingErrorResponse'
+              example:
+                timestamp: '2026-07-03T08:12:46.458339700Z'
+                status: 400
+                reason: Bad Request
+                message: "data binding failed: unrecognized token '...' at line: 1 column: 54"
+                path: /api/v1/auth/login
+                method: POST
+        '401':
+          description: Username or password incorrect
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiErrorResponse'
+              example:
+                success: false
+                message: Username atau password salah
+                data: null
+                errors:
+                  code: UNAUTHORIZED
+                  message: Username atau password salah
+                  details: null
+                meta:
+                  timestamp: '2026-07-03T09:16:00Z'
+        '500':
+          description: Unexpected failure talking to WSO2 IS
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiErrorResponse'
+              example:
+                success: false
+                message: Terjadi kesalahan pada server, silakan coba lagi nanti
+                data: null
+                errors:
+                  code: INTERNAL_ERROR
+                  message: Terjadi kesalahan pada server, silakan coba lagi nanti
+                  details: null
+                meta:
+                  timestamp: '2026-07-03T09:16:00Z'
+      security: []
+  /api/v1/auth/token:
+    post:
+      tags:
+        - Auth
+      summary: Exchange an authorization code for tokens
+      description: Wraps WSO2 IS `POST /oauth2/token` using the `authorization_code` grant.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/TokenExchangeRequest'
+            example:
+              code: acec171-ac3d-34e0-b4ee-fe52f2e3d94d
+      responses:
+        '200':
+          description: Token set retrieved
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/LoginApiResponse'
+              example:
+                success: true
+                message: Token berhasil diambil
+                data:
+                  accessToken: eyJhbGciOiJSUzI1NiJ9.example-access-token-payload.example-signature
+                  refreshToken: a962fcbf-b301-3948-a29f-22202bfb5923
+                  idToken: eyJhbGciOiJSUzI1NiJ9.example-id-token-payload.example-signature
+                  tokenType: Bearer
+                  expiresIn: 3600
+                  scope: internal_login openid
+                  user:
+                    sub: 2986721c-0cc2-42ba-91f2-95c00ae7e8b9
+                    iss: https://iam.apicentrum.biz.id/oauth2/token
+                errors: null
+                meta:
+                  timestamp: '2026-07-03T09:17:00Z'
+        '400':
+          description: Malformed request body
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RequestBindingErrorResponse'
+              example:
+                timestamp: '2026-07-03T08:12:46.458339700Z'
+                status: 400
+                reason: Bad Request
+                message: "data binding failed: unrecognized token '...' at line: 1 column: 54"
+                path: /api/v1/auth/token
+                method: POST
+        '500':
+          description: Code invalid/expired or WSO2 IS unreachable
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiErrorResponse'
+              example:
+                success: false
+                message: Terjadi kesalahan pada server, silakan coba lagi nanti
+                data: null
+                errors:
+                  code: INTERNAL_ERROR
+                  message: Terjadi kesalahan pada server, silakan coba lagi nanti
+                  details: null
+                meta:
+                  timestamp: '2026-07-03T09:17:00Z'
+      security: []
+  /api/v1/auth/refresh:
+    post:
+      tags:
+        - Auth
+      summary: Refresh an access token
+      description: Wraps WSO2 IS `POST /oauth2/token` using the `refresh_token` grant.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RefreshRequest'
+            example:
+              refreshToken: a962fcbf-b301-3948-a29f-22202bfb5923
+      responses:
+        '200':
+          description: New token set issued
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/LoginApiResponse'
+              example:
+                success: true
+                message: Token berhasil diperbarui
+                data:
+                  accessToken: eyJhbGciOiJSUzI1NiJ9.example-refreshed-access-token.example-signature
+                  refreshToken: a962fcbf-b301-3948-a29f-22202bfb5923
+                  idToken: eyJhbGciOiJSUzI1NiJ9.example-refreshed-id-token.example-signature
+                  tokenType: Bearer
+                  expiresIn: 3600
+                  scope: internal_login openid
+                  user:
+                    sub: 2986721c-0cc2-42ba-91f2-95c00ae7e8b9
+                    amr:
+                      - refresh_token
+                errors: null
+                meta:
+                  timestamp: '2026-07-03T09:18:00Z'
+        '400':
+          description: Malformed request body
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RequestBindingErrorResponse'
+              example:
+                timestamp: '2026-07-03T08:12:46.458339700Z'
+                status: 400
+                reason: Bad Request
+                message: "data binding failed: unrecognized token '...' at line: 1 column: 54"
+                path: /api/v1/auth/refresh
+                method: POST
+        '401':
+          description: Refresh token invalid or expired
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiErrorResponse'
+              example:
+                success: false
+                message: Refresh token tidak valid atau sudah expired
+                data: null
+                errors:
+                  code: UNAUTHORIZED
+                  message: Refresh token tidak valid atau sudah expired
+                  details: null
+                meta:
+                  timestamp: '2026-07-03T09:18:00Z'
+        '500':
+          description: Unexpected failure talking to WSO2 IS
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiErrorResponse'
+              example:
+                success: false
+                message: Terjadi kesalahan pada server, silakan coba lagi nanti
+                data: null
+                errors:
+                  code: INTERNAL_ERROR
+                  message: Terjadi kesalahan pada server, silakan coba lagi nanti
+                  details: null
+                meta:
+                  timestamp: '2026-07-03T09:18:00Z'
+      security: []
+  /api/v1/auth/userinfo:
+    get:
+      tags:
+        - Auth
+      summary: Get the authenticated user's claims
+      description: Wraps WSO2 IS `GET /oauth2/userinfo`.
+      parameters:
+        - name: Authorization
+          in: header
+          required: true
+          description: Bearer access token obtained from `/auth/login`, `/token` or `/refresh`
+          schema:
+            type: string
+          example: Bearer eyJhbGciOiJSUzI1NiJ9.example-access-token-payload.example-signature
+      responses:
+        '200':
+          description: User claims retrieved
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/UserInfoApiResponse'
+              example:
+                success: true
+                message: Userinfo berhasil diambil
+                data:
+                  sub: 2986721c-0cc2-42ba-91f2-95c00ae7e8b9
+                errors: null
+                meta:
+                  timestamp: '2026-07-03T09:19:00Z'
+        '401':
+          description: Authorization header missing/malformed, or access token invalid/expired
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiErrorResponse'
+              example:
+                success: false
+                message: Access token tidak valid atau sudah expired
+                data: null
+                errors:
+                  code: UNAUTHORIZED
+                  message: Access token tidak valid atau sudah expired
+                  details: null
+                meta:
+                  timestamp: '2026-07-03T09:19:00Z'
+  /api/v1/auth/introspect:
+    post:
+      tags:
+        - Auth
+      summary: Introspect a token
+      description: Wraps WSO2 IS `POST /oauth2/introspect` (RFC 7662), using client_secret_basic auth.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/IntrospectRequest'
+            example:
+              token: eyJhbGciOiJSUzI1NiJ9.example-access-token-payload.example-signature
+              tokenTypeHint: access_token
+      responses:
+        '200':
+          description: Introspection result
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/IntrospectApiResponse'
+              example:
+                success: true
+                message: Introspeksi token berhasil
+                data:
+                  active: true
+                  scope: internal_login openid
+                  client_id: RnIGkMGt5DkeTZqOcL9_m5z2t_Qa
+                  username: admin
+                  exp: 1783070533
+                errors: null
+                meta:
+                  timestamp: '2026-07-03T09:20:00Z'
+        '400':
+          description: Malformed request body
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RequestBindingErrorResponse'
+              example:
+                timestamp: '2026-07-03T08:12:46.458339700Z'
+                status: 400
+                reason: Bad Request
+                message: "data binding failed: unrecognized token '...' at line: 1 column: 54"
+                path: /api/v1/auth/introspect
+                method: POST
+        '500':
+          description: WSO2 IS rejected or was unreachable for the introspection call
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiErrorResponse'
+              example:
+                success: false
+                message: Terjadi kesalahan pada server, silakan coba lagi nanti
+                data: null
+                errors:
+                  code: INTERNAL_ERROR
+                  message: Terjadi kesalahan pada server, silakan coba lagi nanti
+                  details: null
+                meta:
+                  timestamp: '2026-07-03T09:20:00Z'
+      security: []
+  /api/v1/auth/revoke:
+    post:
+      tags:
+        - Auth
+      summary: Revoke a token
+      description: Wraps WSO2 IS `POST /oauth2/revoke` (RFC 7009), using client_secret_basic auth.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RevokeRequest'
+            example:
+              token: a962fcbf-b301-3948-a29f-22202bfb5923
+              tokenTypeHint: refresh_token
+      responses:
+        '200':
+          description: Token revoked
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/EmptyApiResponse'
+              example:
+                success: true
+                message: Token berhasil dicabut
+                data: null
+                errors: null
+                meta:
+                  timestamp: '2026-07-03T09:21:00Z'
+        '400':
+          description: Malformed request body
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RequestBindingErrorResponse'
+              example:
+                timestamp: '2026-07-03T08:12:46.458339700Z'
+                status: 400
+                reason: Bad Request
+                message: "data binding failed: unrecognized token '...' at line: 1 column: 54"
+                path: /api/v1/auth/revoke
+                method: POST
+        '500':
+          description: WSO2 IS rejected or was unreachable for the revoke call
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiErrorResponse'
+              example:
+                success: false
+                message: Terjadi kesalahan pada server, silakan coba lagi nanti
+                data: null
+                errors:
+                  code: INTERNAL_ERROR
+                  message: Terjadi kesalahan pada server, silakan coba lagi nanti
+                  details: null
+                meta:
+                  timestamp: '2026-07-03T09:21:00Z'
+      security: []
+  /api/v1/auth/logout:
+    post:
+      tags:
+        - Auth
+      summary: End the user's session
+      description: Wraps WSO2 IS `POST /oidc/logout` using `id_token_hint`.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/LogoutRequest'
+            example:
+              idToken: eyJhbGciOiJSUzI1NiJ9.example-id-token-payload.example-signature
+      responses:
+        '200':
+          description: Logout succeeded
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/EmptyApiResponse'
+              example:
+                success: true
+                message: Logout berhasil
+                data: null
+                errors: null
+                meta:
+                  timestamp: '2026-07-03T09:22:00Z'
+        '400':
+          description: Malformed request body
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RequestBindingErrorResponse'
+              example:
+                timestamp: '2026-07-03T08:12:46.458339700Z'
+                status: 400
+                reason: Bad Request
+                message: "data binding failed: unrecognized token '...' at line: 1 column: 54"
+                path: /api/v1/auth/logout
+                method: POST
+        '500':
+          description: Unexpected failure talking to WSO2 IS
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiErrorResponse'
+              example:
+                success: false
+                message: Terjadi kesalahan pada server, silakan coba lagi nanti
+                data: null
+                errors:
+                  code: INTERNAL_ERROR
+                  message: Terjadi kesalahan pada server, silakan coba lagi nanti
+                  details: null
+                meta:
+                  timestamp: '2026-07-03T09:22:00Z'
+      security: []
+  /api/v1/dashboard/summary:
+    get:
+      tags:
+        - Dashboard
+      summary: Get dashboard summary
+      description: Returns the top-level KPI cards (Total Proyek, Revenue Bulan Ini, Deal Aktif).
+      responses:
+        '200':
+          description: Dashboard summary retrieved
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                  message:
+                    type: string
+                  data:
+                    $ref: '#/components/schemas/DashboardSummary'
+                  errors:
+                    nullable: true
+                  meta:
+                    $ref: '#/components/schemas/AuthResponseMeta'
+              example:
+                success: true
+                message: Ringkasan dashboard berhasil diambil
+                data:
+                  totalProyek: 128
+                  revenueBulanIni: 275000000
+                  dealAktif: 14
+                errors: null
+                meta:
+                  timestamp: '2026-07-03T09:15:32Z'
+      security: []
+  /api/v1/business/ping:
+    get:
+      tags:
+        - Business
+      summary: Verify access token
+      description: Returns 200 only if the caller's Bearer access token passed JWKS validation.
+      responses:
+        '200':
+          description: Token valid
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                  message:
+                    type: string
+                  data:
+                    nullable: true
+                  errors:
+                    nullable: true
+                  meta:
+                    $ref: '#/components/schemas/AuthResponseMeta'
+              example:
+                success: true
+                message: Token valid, akses diizinkan
+                data: null
+                errors: null
+                meta:
+                  timestamp: '2026-07-03T09:15:32Z'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+  /api/v1/business/daftar-surat:
+    get:
+      tags:
+        - Daftar Surat
+      summary: Daftar surat (paginated)
+      description: >-
+        Optional search over nomor/tujuan/perihal, plus tahun/kategori/proyek filters.
+        By default only active letters are returned; include_dibatalkan=true also includes
+        cancelled rows for audit/report views.
+      parameters:
+        - name: search
+          in: query
+          schema:
+            type: string
+        - name: tahun
+          in: query
+          schema:
+            type: integer
+        - name: kategori_surat_id
+          in: query
+          schema:
+            type: integer
+        - name: proyek_id
+          in: query
+          schema:
+            type: integer
+        - name: include_dibatalkan
+          in: query
+          schema:
+            type: boolean
+            default: false
+        - name: page
+          in: query
+          schema:
+            type: integer
+            default: 1
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            default: 20
+      responses:
+        '200':
+          description: Daftar surat berhasil diambil
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                  message:
+                    type: string
+                  data:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/NomorSurat'
+                  errors:
+                    nullable: true
+                  meta:
+                    $ref: '#/components/schemas/AuthResponseMeta'
+              example:
+                success: true
+                message: Daftar surat berhasil diambil
+                data:
+                  - id: 101
+                    kategoriSuratId: 1
+                    kategoriKode: DR-01
+                    kategoriNama: Surat Undangan
+                    proyekId: 12
+                    kodeProyek: PRJ-001
+                    namaProyek: Proyek A
+                    tanggal: '2026-07-03'
+                    tahun: 2026
+                    urutan: 7
+                    nomor: SK-DR-01-2026-007
+                    tujuan: Direktur Operasional
+                    perihal: Undangan rapat koordinasi
+                    keterangan: null
+                    alasanPembatalan: null
+                    isDibatalkan: false
+                errors: null
+                meta:
+                  timestamp: '2026-07-03T09:15:32Z'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+    post:
+      tags:
+        - Daftar Surat
+      summary: Buat surat baru
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/NomorSuratCreateRequest'
+      responses:
+        '201':
+          description: Surat berhasil ditambahkan
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                  message:
+                    type: string
+                  data:
+                    $ref: '#/components/schemas/NomorSurat'
+                  errors:
+                    nullable: true
+                  meta:
+                    $ref: '#/components/schemas/AuthResponseMeta'
+        '400':
+          description: Validasi gagal
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiErrorResponse'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '500':
+          $ref: '#/components/responses/InternalError'
+  /api/v1/business/daftar-surat/preview-nomor:
+    get:
+      tags:
+        - Daftar Surat
+      summary: Preview nomor surat berikutnya
+      parameters:
+        - name: kategori_surat_id
+          in: query
+          required: true
+          schema:
+            type: integer
+        - name: tanggal
+          in: query
+          required: true
+          schema:
+            type: string
+            format: date
+      responses:
+        '200':
+          description: Preview nomor surat
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                  message:
+                    type: string
+                  data:
+                    $ref: '#/components/schemas/NomorSuratPreview'
+                  errors:
+                    nullable: true
+                  meta:
+                    $ref: '#/components/schemas/AuthResponseMeta'
+              example:
+                success: true
+                message: Preview nomor surat
+                data:
+                  nomorPreview: SK-DR-01-2026-008
+                errors: null
+                meta:
+                  timestamp: '2026-07-03T09:15:32Z'
+        '400':
+          description: Validasi gagal (kategori_surat_id/tanggal wajib dan format tanggal valid)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiErrorResponse'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+  /api/v1/business/daftar-surat/{id}:
+    parameters:
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: integer
+    get:
+      tags:
+        - Daftar Surat
+      summary: Detail surat
+      responses:
+        '200':
+          description: Detail surat berhasil diambil
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                  message:
+                    type: string
+                  data:
+                    $ref: '#/components/schemas/NomorSurat'
+                  errors:
+                    nullable: true
+                  meta:
+                    $ref: '#/components/schemas/AuthResponseMeta'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          description: Surat tidak ditemukan
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiErrorResponse'
+        '500':
+          $ref: '#/components/responses/InternalError'
+    put:
+      tags:
+        - Daftar Surat
+      summary: Ubah surat
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/NomorSuratUpdateRequest'
+      responses:
+        '200':
+          description: Surat berhasil diperbarui
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                  message:
+                    type: string
+                  data:
+                    $ref: '#/components/schemas/NomorSurat'
+                  errors:
+                    nullable: true
+                  meta:
+                    $ref: '#/components/schemas/AuthResponseMeta'
+        '400':
+          description: Validasi gagal
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiErrorResponse'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          description: Surat tidak ditemukan
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiErrorResponse'
+        '500':
+          $ref: '#/components/responses/InternalError'
+    delete:
+      tags:
+        - Daftar Surat
+      summary: Batalkan surat
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CancelNomorSuratRequest'
+      responses:
+        '200':
+          description: Surat berhasil dibatalkan
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                  message:
+                    type: string
+                  data:
+                    $ref: '#/components/schemas/NomorSuratCancelled'
+                  errors:
+                    nullable: true
+                  meta:
+                    $ref: '#/components/schemas/AuthResponseMeta'
+        '400':
+          description: Validasi gagal
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiErrorResponse'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          description: Surat tidak ditemukan
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiErrorResponse'
+        '500':
+          $ref: '#/components/responses/InternalError'
+  /api/v1/business/proyek/dropdown:
+    get:
+      tags:
+        - Proyek
+      summary: Dropdown proyek untuk surat
+      parameters:
+        - name: search
+          in: query
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Daftar proyek untuk dropdown
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                  message:
+                    type: string
+                  data:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/ProyekDropdownItem'
+                  errors:
+                    nullable: true
+                  meta:
+                    $ref: '#/components/schemas/AuthResponseMeta'
+              example:
+                success: true
+                message: Daftar proyek untuk dropdown
+                data:
+                  - id: 12
+                    kodeProyek: PRJ-001
+                    namaProyek: Proyek A
+                errors: null
+                meta:
+                  timestamp: '2026-07-03T09:15:32Z'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+  /api/v1/master/units:
+    get:
+      tags:
+        - Unit
+      summary: Daftar unit (paginated)
+      description: Mengembalikan unit yang belum dihapus (`is_deleted = false`), dengan filter opsional.
+      parameters:
+        - name: search
+          in: query
+          description: Filter ILIKE pada `nama_unit`
+          schema:
+            type: string
+        - name: status
+          in: query
+          schema:
+            type: string
+            enum:
+              - AKTIF
+              - TIDAK_AKTIF
+        - name: parent_id
+          in: query
+          description: Hanya tampilkan anak dari unit dengan id ini
+          schema:
+            type: integer
+        - name: page
+          in: query
+          schema:
+            type: integer
+            default: 1
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            default: 20
+      responses:
+        '200':
+          description: Daftar unit berhasil diambil
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiResponse'
+              example:
+                success: true
+                message: Daftar unit berhasil diambil
+                data:
+                  - id: 1
+                    namaUnit: Sales & Marketing
+                    parentUnitId: null
+                    status: AKTIF
+                errors: null
+                meta:
+                  timestamp: '2026-07-05T02:10:00Z'
+                  pagination:
+                    page: 1
+                    limit: 20
+                    totalItems: 5
+                    totalPages: 1
+        '400':
+          description: Nilai `status` bukan AKTIF/TIDAK_AKTIF
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiResponse'
+              example:
+                success: false
+                message: Status hanya boleh AKTIF atau TIDAK_AKTIF
+                data: null
+                errors:
+                  code: VALIDATION_ERROR
+                  message: Status hanya boleh AKTIF atau TIDAK_AKTIF
+                  details: null
+                meta:
+                  timestamp: '2026-07-05T02:10:00Z'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '500':
+          $ref: '#/components/responses/InternalError'
+    post:
+      tags:
+        - Unit
+      summary: Buat unit baru
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UnitCreateRequest'
+            example:
+              namaUnit: Sales & Marketing
+              parentUnitId: null
+              status: AKTIF
+      responses:
+        '201':
+          description: Unit berhasil dibuat
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiResponse'
+              example:
+                success: true
+                message: Unit berhasil dibuat
+                data:
+                  id: 6
+                  namaUnit: Sales & Marketing
+                  parentUnitId: null
+                  status: AKTIF
+                errors: null
+                meta:
+                  timestamp: '2026-07-05T02:11:00Z'
+        '400':
+          description: Validasi gagal (nama_unit, status, atau parent_unit_id)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiResponse'
+              examples:
+                namaInvalid:
+                  summary: nama_unit tidak sesuai panjang
+                  value:
+                    success: false
+                    message: nama_unit wajib diisi, panjang 3-100 karakter
+                    data: null
+                    errors:
+                      code: VALIDATION_ERROR
+                      message: nama_unit wajib diisi, panjang 3-100 karakter
+                      details: null
+                    meta:
+                      timestamp: '2026-07-05T02:11:00Z'
+                statusInvalid:
+                  summary: status bukan AKTIF/TIDAK_AKTIF
+                  value:
+                    success: false
+                    message: Status hanya boleh AKTIF atau TIDAK_AKTIF
+                    data: null
+                    errors:
+                      code: VALIDATION_ERROR
+                      message: Status hanya boleh AKTIF atau TIDAK_AKTIF
+                      details: null
+                    meta:
+                      timestamp: '2026-07-05T02:11:00Z'
+                parentNotFound:
+                  summary: parentUnitId tidak ditemukan
+                  value:
+                    success: false
+                    message: Unit induk tidak ditemukan
+                    data: null
+                    errors:
+                      code: VALIDATION_ERROR
+                      message: Unit induk tidak ditemukan
+                      details: null
+                    meta:
+                      timestamp: '2026-07-05T02:11:00Z'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '409':
+          description: Nama unit sudah digunakan unit lain
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiResponse'
+              example:
+                success: false
+                message: Nama unit sudah digunakan
+                data: null
+                errors:
+                  code: CONFLICT
+                  message: Nama unit sudah digunakan
+                  details: null
+                meta:
+                  timestamp: '2026-07-05T02:11:00Z'
+        '500':
+          $ref: '#/components/responses/InternalError'
+  /api/v1/master/units/tree:
+    get:
+      tags:
+        - Unit
+      summary: Hierarki unit (nested children)
+      description: Mengembalikan seluruh unit aktif dalam bentuk pohon (nested `children`), disusun di level service dari satu flat read (bukan query rekursif SQL). Tidak memakai pagination.
+      responses:
+        '200':
+          description: Hierarki unit berhasil diambil
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiResponse'
+              example:
+                success: true
+                message: Hierarki unit berhasil diambil
+                data:
+                  - id: 1
+                    namaUnit: Sales & Marketing
+                    parentUnitId: null
+                    status: AKTIF
+                    children:
+                      - id: 4
+                        namaUnit: Sales Regional Jakarta
+                        parentUnitId: 1
+                        status: AKTIF
+                        children: []
+                errors: null
+                meta:
+                  timestamp: '2026-07-05T02:12:00Z'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '500':
+          $ref: '#/components/responses/InternalError'
+  /api/v1/master/units/{id}:
+    parameters:
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: integer
+    get:
+      tags:
+        - Unit
+      summary: Detail unit
+      responses:
+        '200':
+          description: Detail unit berhasil diambil
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiResponse'
+              example:
+                success: true
+                message: Detail unit berhasil diambil
+                data:
+                  id: 1
+                  namaUnit: Sales & Marketing
+                  parentUnitId: null
+                  status: AKTIF
+                  createdAt: '2026-01-10T03:00:00Z'
+                  updatedAt: null
+                  createdBy: 2986721c-0cc2-42ba-91f2-95c00ae7e8b9
+                  updatedBy: null
+                errors: null
+                meta:
+                  timestamp: '2026-07-05T02:13:00Z'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          description: Unit tidak ditemukan
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiResponse'
+              example:
+                success: false
+                message: Unit dengan id 999 tidak ditemukan
+                data: null
+                errors:
+                  code: NOT_FOUND
+                  message: Unit dengan id 999 tidak ditemukan
+                  details: null
+                meta:
+                  timestamp: '2026-07-05T02:13:00Z'
+        '500':
+          $ref: '#/components/responses/InternalError'
+    put:
+      tags:
+        - Unit
+      summary: Ubah unit
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UnitUpdateRequest'
+            example:
+              namaUnit: Sales & Marketing
+              parentUnitId: null
+              status: AKTIF
+      responses:
+        '200':
+          description: Unit berhasil diperbarui
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiResponse'
+              example:
+                success: true
+                message: Unit berhasil diperbarui
+                data:
+                  id: 1
+                  namaUnit: Sales & Marketing
+                  parentUnitId: null
+                  status: AKTIF
+                errors: null
+                meta:
+                  timestamp: '2026-07-05T02:14:00Z'
+        '400':
+          description: Validasi gagal (nama_unit, status, parent_unit_id tidak ditemukan, atau referensi melingkar)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiResponse'
+              examples:
+                circularReference:
+                  summary: Parent membentuk referensi melingkar
+                  value:
+                    success: false
+                    message: Parent unit tidak boleh membentuk referensi melingkar
+                    data: null
+                    errors:
+                      code: VALIDATION_ERROR
+                      message: Parent unit tidak boleh membentuk referensi melingkar
+                      details: null
+                    meta:
+                      timestamp: '2026-07-05T02:14:00Z'
+                parentNotFound:
+                  summary: parentUnitId tidak ditemukan
+                  value:
+                    success: false
+                    message: Unit induk tidak ditemukan
+                    data: null
+                    errors:
+                      code: VALIDATION_ERROR
+                      message: Unit induk tidak ditemukan
+                      details: null
+                    meta:
+                      timestamp: '2026-07-05T02:14:00Z'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          description: Unit tidak ditemukan
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiResponse'
+              example:
+                success: false
+                message: Unit dengan id 999 tidak ditemukan
+                data: null
+                errors:
+                  code: NOT_FOUND
+                  message: Unit dengan id 999 tidak ditemukan
+                  details: null
+                meta:
+                  timestamp: '2026-07-05T02:14:00Z'
+        '409':
+          description: Nama unit (baru) sudah dipakai unit lain
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiResponse'
+              example:
+                success: false
+                message: Nama unit sudah digunakan
+                data: null
+                errors:
+                  code: CONFLICT
+                  message: Nama unit sudah digunakan
+                  details: null
+                meta:
+                  timestamp: '2026-07-05T02:14:00Z'
+        '500':
+          $ref: '#/components/responses/InternalError'
+    delete:
+      tags:
+        - Unit
+      summary: Soft delete unit
+      description: Menolak jika unit masih memiliki sub-unit aktif (`parent_unit_id` merujuk ke unit ini).
+      responses:
+        '200':
+          description: Unit berhasil dihapus
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiResponse'
+              example:
+                success: true
+                message: Unit berhasil dihapus
+                data: null
+                errors: null
+                meta:
+                  timestamp: '2026-07-05T02:15:00Z'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          description: Unit tidak ditemukan
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiResponse'
+              example:
+                success: false
+                message: Unit dengan id 999 tidak ditemukan
+                data: null
+                errors:
+                  code: NOT_FOUND
+                  message: Unit dengan id 999 tidak ditemukan
+                  details: null
+                meta:
+                  timestamp: '2026-07-05T02:15:00Z'
+        '409':
+          description: Unit masih memiliki sub-unit aktif
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiResponse'
+              example:
+                success: false
+                message: Unit tidak dapat dihapus karena masih memiliki sub-unit aktif
+                data: null
+                errors:
+                  code: CONFLICT
+                  message: Unit tidak dapat dihapus karena masih memiliki sub-unit aktif
+                  details: null
+                meta:
+                  timestamp: '2026-07-05T02:15:00Z'
+        '500':
+          $ref: '#/components/responses/InternalError'
+  /api/v1/master/industries:
+    get:
+      tags:
+        - Industri
+      summary: Daftar industri (paginated)
+      parameters:
+        - name: search
+          in: query
+          description: Filter ILIKE pada `kode` atau `nama`
+          schema:
+            type: string
+        - name: page
+          in: query
+          schema:
+            type: integer
+            default: 1
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            default: 20
+      responses:
+        '200':
+          description: Daftar industri berhasil diambil
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiResponse'
+              example:
+                success: true
+                message: Daftar industri berhasil diambil
+                data:
+                  - id: 1
+                    kode: MFG
+                    nama: Manufaktur
+                errors: null
+                meta:
+                  timestamp: '2026-07-05T02:20:00Z'
+                  pagination:
+                    page: 1
+                    limit: 20
+                    totalItems: 8
+                    totalPages: 1
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '500':
+          $ref: '#/components/responses/InternalError'
+    post:
+      tags:
+        - Industri
+      summary: Buat industri baru
+      description: '`kode` disimpan dalam bentuk UPPERCASE, unik case-insensitive.'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/IndustriCreateRequest'
+            example:
+              kode: mfg
+              nama: Manufaktur
+      responses:
+        '201':
+          description: Industri berhasil dibuat
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiResponse'
+              example:
+                success: true
+                message: Industri berhasil dibuat
+                data:
+                  id: 9
+                  kode: MFG
+                  nama: Manufaktur
+                errors: null
+                meta:
+                  timestamp: '2026-07-05T02:21:00Z'
+        '400':
+          description: Validasi gagal (kode atau nama)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiResponse'
+              examples:
+                kodeKosong:
+                  summary: Kode kosong
+                  value:
+                    success: false
+                    message: Kode industri wajib diisi
+                    data: null
+                    errors:
+                      code: VALIDATION_ERROR
+                      message: Kode industri wajib diisi
+                      details: null
+                    meta:
+                      timestamp: '2026-07-05T02:21:00Z'
+                kodeTerlaluPanjang:
+                  summary: Kode > 20 karakter
+                  value:
+                    success: false
+                    message: Kode industri maksimal 20 karakter
+                    data: null
+                    errors:
+                      code: VALIDATION_ERROR
+                      message: Kode industri maksimal 20 karakter
+                      details: null
+                    meta:
+                      timestamp: '2026-07-05T02:21:00Z'
+                namaInvalid:
+                  summary: Nama tidak sesuai panjang
+                  value:
+                    success: false
+                    message: Nama industri wajib diisi, panjang 3-100 karakter
+                    data: null
+                    errors:
+                      code: VALIDATION_ERROR
+                      message: Nama industri wajib diisi, panjang 3-100 karakter
+                      details: null
+                    meta:
+                      timestamp: '2026-07-05T02:21:00Z'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '409':
+          description: Kode industri sudah digunakan (case-insensitive)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiResponse'
+              example:
+                success: false
+                message: Kode industri sudah digunakan
+                data: null
+                errors:
+                  code: CONFLICT
+                  message: Kode industri sudah digunakan
+                  details: null
+                meta:
+                  timestamp: '2026-07-05T02:21:00Z'
+        '500':
+          $ref: '#/components/responses/InternalError'
+  /api/v1/master/industries/{id}:
+    parameters:
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: integer
+    get:
+      tags:
+        - Industri
+      summary: Detail industri
+      responses:
+        '200':
+          description: Detail industri berhasil diambil
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiResponse'
+              example:
+                success: true
+                message: Detail industri berhasil diambil
+                data:
+                  id: 1
+                  kode: MFG
+                  nama: Manufaktur
+                  createdAt: '2026-01-10T03:00:00Z'
+                  updatedAt: null
+                  createdBy: 2986721c-0cc2-42ba-91f2-95c00ae7e8b9
+                  updatedBy: null
+                errors: null
+                meta:
+                  timestamp: '2026-07-05T02:22:00Z'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          description: Industri tidak ditemukan
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiResponse'
+              example:
+                success: false
+                message: Industri dengan id 999 tidak ditemukan
+                data: null
+                errors:
+                  code: NOT_FOUND
+                  message: Industri dengan id 999 tidak ditemukan
+                  details: null
+                meta:
+                  timestamp: '2026-07-05T02:22:00Z'
+        '500':
+          $ref: '#/components/responses/InternalError'
+    put:
+      tags:
+        - Industri
+      summary: Ubah industri
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/IndustriUpdateRequest'
+            example:
+              kode: MFG
+              nama: Manufaktur & Produksi
+      responses:
+        '200':
+          description: Industri berhasil diperbarui
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiResponse'
+              example:
+                success: true
+                message: Industri berhasil diperbarui
+                data:
+                  id: 1
+                  kode: MFG
+                  nama: Manufaktur & Produksi
+                errors: null
+                meta:
+                  timestamp: '2026-07-05T02:23:00Z'
+        '400':
+          description: Validasi gagal (kode atau nama)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiResponse'
+              example:
+                success: false
+                message: Nama industri wajib diisi, panjang 3-100 karakter
+                data: null
+                errors:
+                  code: VALIDATION_ERROR
+                  message: Nama industri wajib diisi, panjang 3-100 karakter
+                  details: null
+                meta:
+                  timestamp: '2026-07-05T02:23:00Z'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          description: Industri tidak ditemukan
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiResponse'
+              example:
+                success: false
+                message: Industri dengan id 999 tidak ditemukan
+                data: null
+                errors:
+                  code: NOT_FOUND
+                  message: Industri dengan id 999 tidak ditemukan
+                  details: null
+                meta:
+                  timestamp: '2026-07-05T02:23:00Z'
+        '409':
+          description: Kode industri (baru) sudah dipakai industri lain
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiResponse'
+              example:
+                success: false
+                message: Kode industri sudah digunakan
+                data: null
+                errors:
+                  code: CONFLICT
+                  message: Kode industri sudah digunakan
+                  details: null
+                meta:
+                  timestamp: '2026-07-05T02:23:00Z'
+        '500':
+          $ref: '#/components/responses/InternalError'
+    delete:
+      tags:
+        - Industri
+      summary: Soft delete industri
+      description: Menolak jika masih direferensikan oleh `proyek.industri_id` yang aktif.
+      responses:
+        '200':
+          description: Industri berhasil dihapus
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiResponse'
+              example:
+                success: true
+                message: Industri berhasil dihapus
+                data: null
+                errors: null
+                meta:
+                  timestamp: '2026-07-05T02:24:00Z'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          description: Industri tidak ditemukan
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiResponse'
+              example:
+                success: false
+                message: Industri dengan id 999 tidak ditemukan
+                data: null
+                errors:
+                  code: NOT_FOUND
+                  message: Industri dengan id 999 tidak ditemukan
+                  details: null
+                meta:
+                  timestamp: '2026-07-05T02:24:00Z'
+        '409':
+          description: Industri masih digunakan oleh Proyek
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiResponse'
+              example:
+                success: false
+                message: Industri tidak dapat dihapus karena masih digunakan oleh Customer/Proyek
+                data: null
+                errors:
+                  code: CONFLICT
+                  message: Industri tidak dapat dihapus karena masih digunakan oleh Customer/Proyek
+                  details: null
+                meta:
+                  timestamp: '2026-07-05T02:24:00Z'
+        '500':
+          $ref: '#/components/responses/InternalError'
+  /api/v1/master/tags:
+    get:
+      tags:
+        - Tags
+      summary: Daftar tags (paginated)
+      parameters:
+        - name: search
+          in: query
+          description: Filter ILIKE pada `kode` atau `nama`
+          schema:
+            type: string
+        - name: unit_id
+          in: query
+          schema:
+            type: integer
+        - name: page
+          in: query
+          schema:
+            type: integer
+            default: 1
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            default: 20
+      responses:
+        '200':
+          description: Daftar tag berhasil diambil
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiResponse'
+              example:
+                success: true
+                message: Daftar tag berhasil diambil
+                data:
+                  - id: 1
+                    kode: URGENT
+                    nama: Prioritas Tinggi
+                    unitId: null
+                errors: null
+                meta:
+                  timestamp: '2026-07-05T02:30:00Z'
+                  pagination:
+                    page: 1
+                    limit: 20
+                    totalItems: 3
+                    totalPages: 1
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '500':
+          $ref: '#/components/responses/InternalError'
+    post:
+      tags:
+        - Tags
+      summary: Buat tag baru
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/TagsCreateRequest'
+            example:
+              kode: URGENT
+              nama: Prioritas Tinggi
+              unitId: null
+      responses:
+        '201':
+          description: Tag berhasil dibuat
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiResponse'
+              example:
+                success: true
+                message: Tag berhasil dibuat
+                data:
+                  id: 4
+                  kode: URGENT
+                  nama: Prioritas Tinggi
+                  unitId: null
+                errors: null
+                meta:
+                  timestamp: '2026-07-05T02:31:00Z'
+        '400':
+          description: Validasi gagal (kode, nama, atau unitId tidak ditemukan)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiResponse'
+              examples:
+                kodeInvalid:
+                  summary: Kode tidak sesuai panjang
+                  value:
+                    success: false
+                    message: Kode tag wajib diisi, panjang 1-20 karakter
+                    data: null
+                    errors:
+                      code: VALIDATION_ERROR
+                      message: Kode tag wajib diisi, panjang 1-20 karakter
+                      details: null
+                    meta:
+                      timestamp: '2026-07-05T02:31:00Z'
+                namaInvalid:
+                  summary: Nama tidak sesuai panjang
+                  value:
+                    success: false
+                    message: Nama tag wajib diisi, panjang 1-100 karakter
+                    data: null
+                    errors:
+                      code: VALIDATION_ERROR
+                      message: Nama tag wajib diisi, panjang 1-100 karakter
+                      details: null
+                    meta:
+                      timestamp: '2026-07-05T02:31:00Z'
+                unitNotFound:
+                  summary: unitId tidak ditemukan
+                  value:
+                    success: false
+                    message: Unit tidak ditemukan
+                    data: null
+                    errors:
+                      code: VALIDATION_ERROR
+                      message: Unit tidak ditemukan
+                      details: null
+                    meta:
+                      timestamp: '2026-07-05T02:31:00Z'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '409':
+          description: Kombinasi kode + unit sudah digunakan tag lain
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiResponse'
+              example:
+                success: false
+                message: Kombinasi kode dan unit sudah digunakan
+                data: null
+                errors:
+                  code: CONFLICT
+                  message: Kombinasi kode dan unit sudah digunakan
+                  details: null
+                meta:
+                  timestamp: '2026-07-05T02:31:00Z'
+        '500':
+          $ref: '#/components/responses/InternalError'
+  /api/v1/master/tags/{id}:
+    parameters:
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: integer
+    get:
+      tags:
+        - Tags
+      summary: Detail tag
+      responses:
+        '200':
+          description: Detail tag berhasil diambil
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiResponse'
+              example:
+                success: true
+                message: Detail tag berhasil diambil
+                data:
+                  id: 1
+                  kode: URGENT
+                  nama: Prioritas Tinggi
+                  unitId: null
+                  createdAt: '2026-01-10T03:00:00Z'
+                  updatedAt: null
+                  createdBy: 2986721c-0cc2-42ba-91f2-95c00ae7e8b9
+                  updatedBy: null
+                errors: null
+                meta:
+                  timestamp: '2026-07-05T02:32:00Z'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          description: Tag tidak ditemukan
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiResponse'
+              example:
+                success: false
+                message: Tag dengan id 999 tidak ditemukan
+                data: null
+                errors:
+                  code: NOT_FOUND
+                  message: Tag dengan id 999 tidak ditemukan
+                  details: null
+                meta:
+                  timestamp: '2026-07-05T02:32:00Z'
+        '500':
+          $ref: '#/components/responses/InternalError'
+    put:
+      tags:
+        - Tags
+      summary: Ubah tag
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/TagsUpdateRequest'
+            example:
+              kode: URGENT
+              nama: Prioritas Sangat Tinggi
+              unitId: null
+      responses:
+        '200':
+          description: Tag berhasil diperbarui
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiResponse'
+              example:
+                success: true
+                message: Tag berhasil diperbarui
+                data:
+                  id: 1
+                  kode: URGENT
+                  nama: Prioritas Sangat Tinggi
+                  unitId: null
+                errors: null
+                meta:
+                  timestamp: '2026-07-05T02:33:00Z'
+        '400':
+          description: Validasi gagal (kode, nama, atau unitId tidak ditemukan)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiResponse'
+              example:
+                success: false
+                message: Unit tidak ditemukan
+                data: null
+                errors:
+                  code: VALIDATION_ERROR
+                  message: Unit tidak ditemukan
+                  details: null
+                meta:
+                  timestamp: '2026-07-05T02:33:00Z'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          description: Tag tidak ditemukan
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiResponse'
+              example:
+                success: false
+                message: Tag dengan id 999 tidak ditemukan
+                data: null
+                errors:
+                  code: NOT_FOUND
+                  message: Tag dengan id 999 tidak ditemukan
+                  details: null
+                meta:
+                  timestamp: '2026-07-05T02:33:00Z'
+        '409':
+          description: Kombinasi kode + unit (baru) sudah dipakai tag lain
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiResponse'
+              example:
+                success: false
+                message: Kombinasi kode dan unit sudah digunakan
+                data: null
+                errors:
+                  code: CONFLICT
+                  message: Kombinasi kode dan unit sudah digunakan
+                  details: null
+                meta:
+                  timestamp: '2026-07-05T02:33:00Z'
+        '500':
+          $ref: '#/components/responses/InternalError'
+    delete:
+      tags:
+        - Tags
+      summary: Soft delete tag
+      description: Menolak jika tag masih dipakai proyek (tabel junction `proyek_tags`).
+      responses:
+        '200':
+          description: Tag berhasil dihapus
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiResponse'
+              example:
+                success: true
+                message: Tag berhasil dihapus
+                data: null
+                errors: null
+                meta:
+                  timestamp: '2026-07-05T02:34:00Z'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          description: Tag tidak ditemukan
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiResponse'
+              example:
+                success: false
+                message: Tag dengan id 999 tidak ditemukan
+                data: null
+                errors:
+                  code: NOT_FOUND
+                  message: Tag dengan id 999 tidak ditemukan
+                  details: null
+                meta:
+                  timestamp: '2026-07-05T02:34:00Z'
+        '409':
+          description: Tag masih digunakan oleh Proyek
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiResponse'
+              example:
+                success: false
+                message: Tag masih digunakan oleh Proyek
+                data: null
+                errors:
+                  code: CONFLICT
+                  message: Tag masih digunakan oleh Proyek
+                  details: null
+                meta:
+                  timestamp: '2026-07-05T02:34:00Z'
+        '500':
+          $ref: '#/components/responses/InternalError'
+  /api/v1/master/resource-tags:
+    get:
+      tags:
+        - Resource Tags
+      summary: Daftar resource tags (paginated)
+      parameters:
+        - name: search
+          in: query
+          description: Filter ILIKE pada `kode` atau `nama`
+          schema:
+            type: string
+        - name: unit_id
+          in: query
+          schema:
+            type: integer
+        - name: status
+          in: query
+          schema:
+            type: string
+            enum:
+              - AKTIF
+              - TIDAK_AKTIF
+        - name: page
+          in: query
+          schema:
+            type: integer
+            default: 1
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            default: 20
+      responses:
+        '200':
+          description: Daftar resource tag berhasil diambil
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiResponse'
+              example:
+                success: true
+                message: Daftar resource tag berhasil diambil
+                data:
+                  - id: 1
+                    kode: SRV-01
+                    nama: Server Produksi
+                    unitId: null
+                    deskripsi: null
+                    status: AKTIF
+                errors: null
+                meta:
+                  timestamp: '2026-07-05T02:40:00Z'
+                  pagination:
+                    page: 1
+                    limit: 20
+                    totalItems: 3
+                    totalPages: 1
+        '400':
+          description: Nilai `status` bukan AKTIF/TIDAK_AKTIF
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiResponse'
+              example:
+                success: false
+                message: Status hanya boleh AKTIF atau TIDAK_AKTIF
+                data: null
+                errors:
+                  code: VALIDATION_ERROR
+                  message: Status hanya boleh AKTIF atau TIDAK_AKTIF
+                  details: null
+                meta:
+                  timestamp: '2026-07-05T02:40:00Z'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '500':
+          $ref: '#/components/responses/InternalError'
+    post:
+      tags:
+        - Resource Tags
+      summary: Buat resource tag baru
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ResourceTagsCreateRequest'
+            example:
+              kode: SRV-01
+              nama: Server Produksi
+              unitId: null
+              deskripsi: null
+              status: AKTIF
+      responses:
+        '201':
+          description: Resource tag berhasil dibuat
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiResponse'
+              example:
+                success: true
+                message: Resource tag berhasil dibuat
+                data:
+                  id: 4
+                  kode: SRV-01
+                  nama: Server Produksi
+                  unitId: null
+                  deskripsi: null
+                  status: AKTIF
+                errors: null
+                meta:
+                  timestamp: '2026-07-05T02:41:00Z'
+        '400':
+          description: Validasi gagal (kode, nama, status, atau unitId tidak ditemukan)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiResponse'
+              examples:
+                kodeInvalid:
+                  summary: Kode tidak sesuai panjang
+                  value:
+                    success: false
+                    message: Kode resource tag wajib diisi, panjang 1-20 karakter
+                    data: null
+                    errors:
+                      code: VALIDATION_ERROR
+                      message: Kode resource tag wajib diisi, panjang 1-20 karakter
+                      details: null
+                    meta:
+                      timestamp: '2026-07-05T02:41:00Z'
+                statusInvalid:
+                  summary: status bukan AKTIF/TIDAK_AKTIF
+                  value:
+                    success: false
+                    message: Status hanya boleh AKTIF atau TIDAK_AKTIF
+                    data: null
+                    errors:
+                      code: VALIDATION_ERROR
+                      message: Status hanya boleh AKTIF atau TIDAK_AKTIF
+                      details: null
+                    meta:
+                      timestamp: '2026-07-05T02:41:00Z'
+                unitNotFound:
+                  summary: unitId tidak ditemukan
+                  value:
+                    success: false
+                    message: Unit tidak ditemukan
+                    data: null
+                    errors:
+                      code: VALIDATION_ERROR
+                      message: Unit tidak ditemukan
+                      details: null
+                    meta:
+                      timestamp: '2026-07-05T02:41:00Z'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '409':
+          description: Kombinasi kode + unit sudah digunakan resource tag lain
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiResponse'
+              example:
+                success: false
+                message: Kombinasi kode dan unit sudah digunakan
+                data: null
+                errors:
+                  code: CONFLICT
+                  message: Kombinasi kode dan unit sudah digunakan
+                  details: null
+                meta:
+                  timestamp: '2026-07-05T02:41:00Z'
+        '500':
+          $ref: '#/components/responses/InternalError'
+  /api/v1/master/resource-tags/{id}:
+    parameters:
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: integer
+    get:
+      tags:
+        - Resource Tags
+      summary: Detail resource tag
+      responses:
+        '200':
+          description: Detail resource tag berhasil diambil
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiResponse'
+              example:
+                success: true
+                message: Detail resource tag berhasil diambil
+                data:
+                  id: 1
+                  kode: SRV-01
+                  nama: Server Produksi
+                  unitId: null
+                  deskripsi: null
+                  status: AKTIF
+                  createdAt: '2026-01-10T03:00:00Z'
+                  updatedAt: null
+                  createdBy: 2986721c-0cc2-42ba-91f2-95c00ae7e8b9
+                  updatedBy: null
+                errors: null
+                meta:
+                  timestamp: '2026-07-05T02:42:00Z'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          description: Resource tag tidak ditemukan
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiResponse'
+              example:
+                success: false
+                message: Resource Tag dengan id 999 tidak ditemukan
+                data: null
+                errors:
+                  code: NOT_FOUND
+                  message: Resource Tag dengan id 999 tidak ditemukan
+                  details: null
+                meta:
+                  timestamp: '2026-07-05T02:42:00Z'
+        '500':
+          $ref: '#/components/responses/InternalError'
+    put:
+      tags:
+        - Resource Tags
+      summary: Ubah resource tag
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ResourceTagsUpdateRequest'
+            example:
+              kode: SRV-01
+              nama: Server Produksi Utama
+              unitId: null
+              deskripsi: Server produksi utama data center Jakarta
+              status: AKTIF
+      responses:
+        '200':
+          description: Resource tag berhasil diperbarui
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiResponse'
+              example:
+                success: true
+                message: Resource tag berhasil diperbarui
+                data:
+                  id: 1
+                  kode: SRV-01
+                  nama: Server Produksi Utama
+                  unitId: null
+                  deskripsi: Server produksi utama data center Jakarta
+                  status: AKTIF
+                errors: null
+                meta:
+                  timestamp: '2026-07-05T02:43:00Z'
+        '400':
+          description: Validasi gagal (kode, nama, status, atau unitId tidak ditemukan)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiResponse'
+              example:
+                success: false
+                message: Status hanya boleh AKTIF atau TIDAK_AKTIF
+                data: null
+                errors:
+                  code: VALIDATION_ERROR
+                  message: Status hanya boleh AKTIF atau TIDAK_AKTIF
+                  details: null
+                meta:
+                  timestamp: '2026-07-05T02:43:00Z'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          description: Resource tag tidak ditemukan
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiResponse'
+              example:
+                success: false
+                message: Resource Tag dengan id 999 tidak ditemukan
+                data: null
+                errors:
+                  code: NOT_FOUND
+                  message: Resource Tag dengan id 999 tidak ditemukan
+                  details: null
+                meta:
+                  timestamp: '2026-07-05T02:43:00Z'
+        '409':
+          description: Kombinasi kode + unit (baru) sudah dipakai resource tag lain
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiResponse'
+              example:
+                success: false
+                message: Kombinasi kode dan unit sudah digunakan
+                data: null
+                errors:
+                  code: CONFLICT
+                  message: Kombinasi kode dan unit sudah digunakan
+                  details: null
+                meta:
+                  timestamp: '2026-07-05T02:43:00Z'
+        '500':
+          $ref: '#/components/responses/InternalError'
+    delete:
+      tags:
+        - Resource Tags
+      summary: Soft delete resource tag
+      description: Menolak jika resource tag masih dipakai Resource Unit (`resource_unit_tags`) ATAU Tagihan (`tagihan_resource_tags`).
+      responses:
+        '200':
+          description: Resource tag berhasil dihapus
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiResponse'
+              example:
+                success: true
+                message: Resource tag berhasil dihapus
+                data: null
+                errors: null
+                meta:
+                  timestamp: '2026-07-05T02:44:00Z'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          description: Resource tag tidak ditemukan
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiResponse'
+              example:
+                success: false
+                message: Resource Tag dengan id 999 tidak ditemukan
+                data: null
+                errors:
+                  code: NOT_FOUND
+                  message: Resource Tag dengan id 999 tidak ditemukan
+                  details: null
+                meta:
+                  timestamp: '2026-07-05T02:44:00Z'
+        '409':
+          description: Resource tag masih digunakan oleh Resource Unit/Tagihan
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiResponse'
+              example:
+                success: false
+                message: Resource Tag masih digunakan oleh Resource Unit/Tagihan
+                data: null
+                errors:
+                  code: CONFLICT
+                  message: Resource Tag masih digunakan oleh Resource Unit/Tagihan
+                  details: null
+                meta:
+                  timestamp: '2026-07-05T02:44:00Z'
+        '500':
+          $ref: '#/components/responses/InternalError'
+  /api/v1/master/kategori-surat:
+    get:
+      tags:
+        - Kategori Surat
+      summary: Daftar kategori surat (paginated)
+      parameters:
+        - name: search
+          in: query
+          description: Filter ILIKE pada `kode` atau `nama`
+          schema:
+            type: string
+        - name: page
+          in: query
+          schema:
+            type: integer
+            default: 1
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            default: 20
+      responses:
+        '200':
+          description: Daftar kategori surat berhasil diambil
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiResponse'
+              example:
+                success: true
+                message: Daftar kategori surat berhasil diambil
+                data:
+                  - id: 1
+                    kode: DR-01
+                    nama: Surat Keputusan
+                    isDefault: true
+                errors: null
+                meta:
+                  timestamp: '2026-07-05T02:50:00Z'
+                  pagination:
+                    page: 1
+                    limit: 20
+                    totalItems: 9
+                    totalPages: 1
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '500':
+          $ref: '#/components/responses/InternalError'
+    post:
+      tags:
+        - Kategori Surat
+      summary: Buat kategori surat baru (custom, mis. DR-10)
+      description: Kategori yang dibuat lewat endpoint ini SELALU `isDefault = false`, meskipun `isDefault` dikirim di body (diabaikan).
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/KategoriSuratCreateRequest'
+            example:
+              kode: DR-10
+              nama: Surat Referensi Khusus
+      responses:
+        '201':
+          description: Kategori surat berhasil dibuat
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiResponse'
+              example:
+                success: true
+                message: Kategori surat berhasil dibuat
+                data:
+                  id: 10
+                  kode: DR-10
+                  nama: Surat Referensi Khusus
+                  isDefault: false
+                errors: null
+                meta:
+                  timestamp: '2026-07-05T02:51:00Z'
+        '400':
+          description: Validasi gagal (format kode atau panjang nama)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiResponse'
+              examples:
+                kodeFormatInvalid:
+                  summary: Kode tidak sesuai pola DR-XX
+                  value:
+                    success: false
+                    message: 'Format kode harus DR-XX (contoh: DR-01)'
+                    data: null
+                    errors:
+                      code: VALIDATION_ERROR
+                      message: 'Format kode harus DR-XX (contoh: DR-01)'
+                      details: null
+                    meta:
+                      timestamp: '2026-07-05T02:51:00Z'
+                namaKosong:
+                  summary: Nama kosong
+                  value:
+                    success: false
+                    message: Nama kategori surat wajib diisi
+                    data: null
+                    errors:
+                      code: VALIDATION_ERROR
+                      message: Nama kategori surat wajib diisi
+                      details: null
+                    meta:
+                      timestamp: '2026-07-05T02:51:00Z'
+                namaTerlaluPanjang:
+                  summary: Nama > 150 karakter
+                  value:
+                    success: false
+                    message: Nama kategori surat maksimal 150 karakter
+                    data: null
+                    errors:
+                      code: VALIDATION_ERROR
+                      message: Nama kategori surat maksimal 150 karakter
+                      details: null
+                    meta:
+                      timestamp: '2026-07-05T02:51:00Z'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '409':
+          description: Kode atau nama kategori surat sudah digunakan
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiResponse'
+              examples:
+                kodeDipakai:
+                  summary: Kode sudah dipakai
+                  value:
+                    success: false
+                    message: Kode kategori surat sudah digunakan
+                    data: null
+                    errors:
+                      code: CONFLICT
+                      message: Kode kategori surat sudah digunakan
+                      details: null
+                    meta:
+                      timestamp: '2026-07-05T02:51:00Z'
+                namaDipakai:
+                  summary: Nama sudah dipakai
+                  value:
+                    success: false
+                    message: Nama kategori surat sudah digunakan
+                    data: null
+                    errors:
+                      code: CONFLICT
+                      message: Nama kategori surat sudah digunakan
+                      details: null
+                    meta:
+                      timestamp: '2026-07-05T02:51:00Z'
+        '500':
+          $ref: '#/components/responses/InternalError'
+  /api/v1/master/kategori-surat/{id}:
+    parameters:
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: integer
+    get:
+      tags:
+        - Kategori Surat
+      summary: Detail kategori surat
+      responses:
+        '200':
+          description: Detail kategori surat berhasil diambil
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiResponse'
+              example:
+                success: true
+                message: Detail kategori surat berhasil diambil
+                data:
+                  id: 1
+                  kode: DR-01
+                  nama: Surat Keputusan
+                  isDefault: true
+                  createdAt: '2026-01-01T00:00:00Z'
+                  updatedAt: null
+                  createdBy: system
+                  updatedBy: null
+                errors: null
+                meta:
+                  timestamp: '2026-07-05T02:52:00Z'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          description: Kategori surat tidak ditemukan
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiResponse'
+              example:
+                success: false
+                message: Kategori surat dengan id 999 tidak ditemukan
+                data: null
+                errors:
+                  code: NOT_FOUND
+                  message: Kategori surat dengan id 999 tidak ditemukan
+                  details: null
+                meta:
+                  timestamp: '2026-07-05T02:52:00Z'
+        '500':
+          $ref: '#/components/responses/InternalError'
+    put:
+      tags:
+        - Kategori Surat
+      summary: Ubah kategori surat
+      description: '`isDefault` TIDAK dapat diubah lewat endpoint ini (diabaikan jika dikirim).'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/KategoriSuratUpdateRequest'
+            example:
+              kode: DR-10
+              nama: Surat Referensi Khusus (Revisi)
+      responses:
+        '200':
+          description: Kategori surat berhasil diperbarui
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiResponse'
+              example:
+                success: true
+                message: Kategori surat berhasil diperbarui
+                data:
+                  id: 10
+                  kode: DR-10
+                  nama: Surat Referensi Khusus (Revisi)
+                  isDefault: false
+                errors: null
+                meta:
+                  timestamp: '2026-07-05T02:53:00Z'
+        '400':
+          description: Validasi gagal (format kode atau panjang nama)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiResponse'
+              example:
+                success: false
+                message: 'Format kode harus DR-XX (contoh: DR-01)'
+                data: null
+                errors:
+                  code: VALIDATION_ERROR
+                  message: 'Format kode harus DR-XX (contoh: DR-01)'
+                  details: null
+                meta:
+                  timestamp: '2026-07-05T02:53:00Z'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          description: Kategori surat tidak ditemukan
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiResponse'
+              example:
+                success: false
+                message: Kategori surat dengan id 999 tidak ditemukan
+                data: null
+                errors:
+                  code: NOT_FOUND
+                  message: Kategori surat dengan id 999 tidak ditemukan
+                  details: null
+                meta:
+                  timestamp: '2026-07-05T02:53:00Z'
+        '409':
+          description: Kode atau nama (baru) sudah dipakai kategori lain
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiResponse'
+              example:
+                success: false
+                message: Kode kategori surat sudah digunakan
+                data: null
+                errors:
+                  code: CONFLICT
+                  message: Kode kategori surat sudah digunakan
+                  details: null
+                meta:
+                  timestamp: '2026-07-05T02:53:00Z'
+        '500':
+          $ref: '#/components/responses/InternalError'
+    delete:
+      tags:
+        - Kategori Surat
+      summary: Soft delete kategori surat
+      description: 'Ditolak dalam dua kondisi (dicek berurutan): (1) kategori bawaan (`isDefault = true`) tidak pernah bisa dihapus -- ditolak langsung tanpa cek pemakaian; (2) kategori custom yang masih dipakai `nomor_surat` aktif.'
+      responses:
+        '200':
+          description: Kategori surat berhasil dihapus
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiResponse'
+              example:
+                success: true
+                message: Kategori surat berhasil dihapus
+                data: null
+                errors: null
+                meta:
+                  timestamp: '2026-07-05T02:54:00Z'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          description: Kategori surat tidak ditemukan
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiResponse'
+              example:
+                success: false
+                message: Kategori surat dengan id 999 tidak ditemukan
+                data: null
+                errors:
+                  code: NOT_FOUND
+                  message: Kategori surat dengan id 999 tidak ditemukan
+                  details: null
+                meta:
+                  timestamp: '2026-07-05T02:54:00Z'
+        '409':
+          description: Kategori bawaan (default), atau masih dipakai penomoran surat
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiResponse'
+              examples:
+                isDefault:
+                  summary: Kategori bawaan (DR-01..DR-09)
+                  value:
+                    success: false
+                    message: Kategori surat bawaan (default) tidak dapat dihapus
+                    data: null
+                    errors:
+                      code: CONFLICT
+                      message: Kategori surat bawaan (default) tidak dapat dihapus
+                      details: null
+                    meta:
+                      timestamp: '2026-07-05T02:54:00Z'
+                masihDipakai:
+                  summary: Masih dipakai nomor_surat
+                  value:
+                    success: false
+                    message: Kategori surat tidak dapat dihapus karena sudah dipakai pada penomoran surat
+                    data: null
+                    errors:
+                      code: CONFLICT
+                      message: Kategori surat tidak dapat dihapus karena sudah dipakai pada penomoran surat
+                      details: null
+                    meta:
+                      timestamp: '2026-07-05T02:54:00Z'
+        '500':
+          $ref: '#/components/responses/InternalError'
+  /api/v1/master/karyawan:
+    get:
+      tags:
+        - Karyawan
+      summary: Daftar karyawan (paginated, TANPA subjectId)
+      description: Response list memakai skema `KaryawanListItem` -- tidak menyertakan `subjectId`.
+      parameters:
+        - name: search
+          in: query
+          description: Filter ILIKE pada `nik`, `nama`, atau `email`
+          schema:
+            type: string
+        - name: unit_id
+          in: query
+          schema:
+            type: integer
+        - name: status
+          in: query
+          description: Nilai backend hanya AKTIF/TIDAK_AKTIF. Frontend memetakan pilihan "Resign" pada dropdown ke nilai TIDAK_AKTIF sebelum mengirim ke API ini.
+          schema:
+            type: string
+            enum:
+              - AKTIF
+              - TIDAK_AKTIF
+        - name: page
+          in: query
+          schema:
+            type: integer
+            default: 1
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            default: 20
+      responses:
+        '200':
+          description: Daftar karyawan berhasil diambil
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiResponse'
+              example:
+                success: true
+                message: Daftar karyawan berhasil diambil
+                data:
+                  - id: 1
+                    nik: '1234567890'
+                    nama: Budi Santoso
+                    jabatan: Account Manager
+                    unitId: 1
+                    email: budi.santoso@swamedia.co.id
+                    noHp: 081234567890
+                    tanggalMasuk: '2020-03-01'
+                    status: AKTIF
+                errors: null
+                meta:
+                  timestamp: '2026-07-05T03:00:00Z'
+                  pagination:
+                    page: 1
+                    limit: 20
+                    totalItems: 40
+                    totalPages: 2
+        '400':
+          description: Nilai `status` bukan AKTIF/TIDAK_AKTIF
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiResponse'
+              example:
+                success: false
+                message: Status harus AKTIF atau TIDAK_AKTIF
+                data: null
+                errors:
+                  code: VALIDATION_ERROR
+                  message: Status harus AKTIF atau TIDAK_AKTIF
+                  details: null
+                meta:
+                  timestamp: '2026-07-05T03:00:00Z'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '500':
+          $ref: '#/components/responses/InternalError'
+    post:
+      tags:
+        - Karyawan
+      summary: Buat karyawan baru
+      description: '`subjectId` opsional -- boleh diisi (menautkan ke akun WSO2 IS) atau dikosongkan (karyawan tanpa akun portal, kondisi valid dan normal).'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/KaryawanCreateRequest'
+            example:
+              nik: '1234567890'
+              nama: Budi Santoso
+              jabatan: Account Manager
+              unitId: 1
+              email: budi.santoso@swamedia.co.id
+              noHp: 081234567890
+              tanggalMasuk: '2020-03-01'
+              status: AKTIF
+              subjectId: null
+      responses:
+        '201':
+          description: Karyawan berhasil dibuat (response DETAIL, termasuk subjectId)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiResponse'
+              example:
+                success: true
+                message: Karyawan berhasil dibuat
+                data:
+                  id: 41
+                  nik: '1234567890'
+                  nama: Budi Santoso
+                  jabatan: Account Manager
+                  unitId: 1
+                  email: budi.santoso@swamedia.co.id
+                  noHp: 081234567890
+                  tanggalMasuk: '2020-03-01'
+                  status: AKTIF
+                  subjectId: null
+                errors: null
+                meta:
+                  timestamp: '2026-07-05T03:01:00Z'
+        '400':
+          description: Validasi gagal (nik, nama, email, noHp, status, atau unitId tidak ditemukan)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiResponse'
+              examples:
+                nikInvalid:
+                  summary: NIK tidak sesuai panjang
+                  value:
+                    success: false
+                    message: NIK wajib diisi, panjang 1-30 karakter
+                    data: null
+                    errors:
+                      code: VALIDATION_ERROR
+                      message: NIK wajib diisi, panjang 1-30 karakter
+                      details: null
+                    meta:
+                      timestamp: '2026-07-05T03:01:00Z'
+                emailFormatInvalid:
+                  summary: Format email tidak valid
+                  value:
+                    success: false
+                    message: Format email tidak valid
+                    data: null
+                    errors:
+                      code: VALIDATION_ERROR
+                      message: Format email tidak valid
+                      details: null
+                    meta:
+                      timestamp: '2026-07-05T03:01:00Z'
+                noHpTooLong:
+                  summary: No HP > 20 karakter
+                  value:
+                    success: false
+                    message: No HP maksimal 20 karakter
+                    data: null
+                    errors:
+                      code: VALIDATION_ERROR
+                      message: No HP maksimal 20 karakter
+                      details: null
+                    meta:
+                      timestamp: '2026-07-05T03:01:00Z'
+                unitNotFound:
+                  summary: unitId tidak ditemukan
+                  value:
+                    success: false
+                    message: Unit tidak ditemukan
+                    data: null
+                    errors:
+                      code: VALIDATION_ERROR
+                      message: Unit tidak ditemukan
+                      details: null
+                    meta:
+                      timestamp: '2026-07-05T03:01:00Z'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '409':
+          description: NIK, email, atau subjectId sudah digunakan karyawan lain
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiResponse'
+              examples:
+                nikDipakai:
+                  summary: NIK sudah digunakan
+                  value:
+                    success: false
+                    message: NIK sudah digunakan
+                    data: null
+                    errors:
+                      code: CONFLICT
+                      message: NIK sudah digunakan
+                      details: null
+                    meta:
+                      timestamp: '2026-07-05T03:01:00Z'
+                emailDipakai:
+                  summary: Email sudah digunakan
+                  value:
+                    success: false
+                    message: Email sudah digunakan
+                    data: null
+                    errors:
+                      code: CONFLICT
+                      message: Email sudah digunakan
+                      details: null
+                    meta:
+                      timestamp: '2026-07-05T03:01:00Z'
+                subjectIdDipakai:
+                  summary: subjectId sudah ditautkan karyawan lain (SECURITY-SENSITIVE)
+                  value:
+                    success: false
+                    message: subject_id sudah ditautkan ke karyawan lain
+                    data: null
+                    errors:
+                      code: CONFLICT
+                      message: subject_id sudah ditautkan ke karyawan lain
+                      details: null
+                    meta:
+                      timestamp: '2026-07-05T03:01:00Z'
+        '500':
+          $ref: '#/components/responses/InternalError'
+  /api/v1/master/karyawan/{id}:
+    parameters:
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: integer
+    get:
+      tags:
+        - Karyawan
+      summary: Detail karyawan (TERMASUK subjectId)
+      description: Response detail memakai skema `KaryawanDetail`, satu-satunya tempat `subjectId` muncul.
+      responses:
+        '200':
+          description: Detail karyawan berhasil diambil
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiResponse'
+              example:
+                success: true
+                message: Detail karyawan berhasil diambil
+                data:
+                  id: 1
+                  nik: '1234567890'
+                  nama: Budi Santoso
+                  jabatan: Account Manager
+                  unitId: 1
+                  email: budi.santoso@swamedia.co.id
+                  noHp: 081234567890
+                  tanggalMasuk: '2020-03-01'
+                  status: AKTIF
+                  subjectId: 2986721c-0cc2-42ba-91f2-95c00ae7e8b9
+                  createdAt: '2020-03-01T01:00:00Z'
+                  updatedAt: null
+                  createdBy: system
+                  updatedBy: null
+                errors: null
+                meta:
+                  timestamp: '2026-07-05T03:02:00Z'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          description: Karyawan tidak ditemukan
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiResponse'
+              example:
+                success: false
+                message: Karyawan dengan id 999 tidak ditemukan
+                data: null
+                errors:
+                  code: NOT_FOUND
+                  message: Karyawan dengan id 999 tidak ditemukan
+                  details: null
+                meta:
+                  timestamp: '2026-07-05T03:02:00Z'
+        '500':
+          $ref: '#/components/responses/InternalError'
+    put:
+      tags:
+        - Karyawan
+      summary: Ubah karyawan
+      description: '`subjectId` boleh diisi, diganti, atau dikosongkan (kirim `null` untuk melepas tautan akun portal).'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/KaryawanUpdateRequest'
+            example:
+              nik: '1234567890'
+              nama: Budi Santoso
+              jabatan: Senior Account Manager
+              unitId: 1
+              email: budi.santoso@swamedia.co.id
+              noHp: 081234567890
+              tanggalMasuk: '2020-03-01'
+              status: AKTIF
+              subjectId: 2986721c-0cc2-42ba-91f2-95c00ae7e8b9
+      responses:
+        '200':
+          description: Karyawan berhasil diperbarui (response DETAIL, termasuk subjectId)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiResponse'
+              example:
+                success: true
+                message: Karyawan berhasil diperbarui
+                data:
+                  id: 1
+                  nik: '1234567890'
+                  nama: Budi Santoso
+                  jabatan: Senior Account Manager
+                  unitId: 1
+                  email: budi.santoso@swamedia.co.id
+                  noHp: 081234567890
+                  tanggalMasuk: '2020-03-01'
+                  status: AKTIF
+                  subjectId: 2986721c-0cc2-42ba-91f2-95c00ae7e8b9
+                errors: null
+                meta:
+                  timestamp: '2026-07-05T03:03:00Z'
+        '400':
+          description: Validasi gagal (nik, nama, email, noHp, status, atau unitId tidak ditemukan)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiResponse'
+              examples:
+                statusInvalid:
+                  summary: status bukan AKTIF/TIDAK_AKTIF
+                  value:
+                    success: false
+                    message: Status harus AKTIF atau TIDAK_AKTIF
+                    data: null
+                    errors:
+                      code: VALIDATION_ERROR
+                      message: Status harus AKTIF atau TIDAK_AKTIF
+                      details: null
+                    meta:
+                      timestamp: '2026-07-05T03:03:00Z'
+                noHpTooLong:
+                  summary: No HP > 20 karakter
+                  value:
+                    success: false
+                    message: No HP maksimal 20 karakter
+                    data: null
+                    errors:
+                      code: VALIDATION_ERROR
+                      message: No HP maksimal 20 karakter
+                      details: null
+                    meta:
+                      timestamp: '2026-07-05T03:03:00Z'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          description: Karyawan tidak ditemukan
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiResponse'
+              example:
+                success: false
+                message: Karyawan dengan id 999 tidak ditemukan
+                data: null
+                errors:
+                  code: NOT_FOUND
+                  message: Karyawan dengan id 999 tidak ditemukan
+                  details: null
+                meta:
+                  timestamp: '2026-07-05T03:03:00Z'
+        '409':
+          description: NIK, email, atau subjectId (baru) sudah dipakai karyawan lain
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiResponse'
+              example:
+                success: false
+                message: subject_id sudah ditautkan ke karyawan lain
+                data: null
+                errors:
+                  code: CONFLICT
+                  message: subject_id sudah ditautkan ke karyawan lain
+                  details: null
+                meta:
+                  timestamp: '2026-07-05T03:03:00Z'
+        '500':
+          $ref: '#/components/responses/InternalError'
+    delete:
+      tags:
+        - Karyawan
+      summary: Soft delete karyawan
+      description: 'Menolak jika karyawan masih menjadi rujukan aktif pada salah satu dari: `customer.am_id`, `proyek.pic_sales_id`/`pmo_id`, `team_member.karyawan_id`, `resource_unit.lead_id`.'
+      responses:
+        '200':
+          description: Karyawan berhasil dihapus
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiResponse'
+              example:
+                success: true
+                message: Karyawan berhasil dihapus
+                data: null
+                errors: null
+                meta:
+                  timestamp: '2026-07-05T03:04:00Z'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          description: Karyawan tidak ditemukan
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiResponse'
+              example:
+                success: false
+                message: Karyawan dengan id 999 tidak ditemukan
+                data: null
+                errors:
+                  code: NOT_FOUND
+                  message: Karyawan dengan id 999 tidak ditemukan
+                  details: null
+                meta:
+                  timestamp: '2026-07-05T03:04:00Z'
+        '409':
+          description: Karyawan masih menjadi rujukan aktif
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiResponse'
+              example:
+                success: false
+                message: Karyawan tidak dapat dihapus karena masih menjadi rujukan aktif pada Customer/Proyek/Team/Resource Unit
+                data: null
+                errors:
+                  code: CONFLICT
+                  message: Karyawan tidak dapat dihapus karena masih menjadi rujukan aktif pada Customer/Proyek/Team/Resource Unit
+                  details: null
+                meta:
+                  timestamp: '2026-07-05T03:04:00Z'
+        '500':
+          $ref: '#/components/responses/InternalError'
+  /api/v1/master/customers:
+    get:
+      tags:
+        - Customer
+      summary: Daftar customer (paginated, id mentah)
+      parameters:
+        - name: search
+          in: query
+          description: Filter ILIKE pada `nama`
+          schema:
+            type: string
+        - name: am_id
+          in: query
+          schema:
+            type: integer
+        - name: industri_id
+          in: query
+          schema:
+            type: integer
+        - name: status_peluang
+          in: query
+          schema:
+            type: string
+            enum:
+              - PROSPEK
+              - NEGOSIASI
+              - DEAL
+              - BATAL
+        - name: page
+          in: query
+          schema:
+            type: integer
+            default: 1
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            default: 20
+      responses:
+        '200':
+          description: Daftar customer berhasil diambil
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiResponse'
+              example:
+                success: true
+                message: Daftar customer berhasil diambil
+                data:
+                  - id: 1
+                    nama: PT Sinar Abadi
+                    amId: 3
+                    industriId: 2
+                    statusPeluang: NEGOSIASI
+                    jenisCustomer: Korporat
+                errors: null
+                meta:
+                  timestamp: '2026-07-05T03:10:00Z'
+                  pagination:
+                    page: 1
+                    limit: 20
+                    totalItems: 12
+                    totalPages: 1
+        '400':
+          description: Nilai `status_peluang` tidak valid
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiResponse'
+              example:
+                success: false
+                message: status_peluang harus salah satu dari PROSPEK, NEGOSIASI, DEAL, BATAL
+                data: null
+                errors:
+                  code: VALIDATION_ERROR
+                  message: status_peluang harus salah satu dari PROSPEK, NEGOSIASI, DEAL, BATAL
+                  details: null
+                meta:
+                  timestamp: '2026-07-05T03:10:00Z'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '500':
+          $ref: '#/components/responses/InternalError'
+    post:
+      tags:
+        - Customer
+      summary: Buat customer baru
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CustomerCreateRequest'
+            example:
+              nama: PT Sinar Abadi
+              amId: 3
+              industriId: 2
+              statusPeluang: PROSPEK
+              jenisCustomer: Korporat
+      responses:
+        '201':
+          description: Customer berhasil dibuat (response DETAIL, termasuk amNama/industriNama)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiResponse'
+              example:
+                success: true
+                message: Customer berhasil dibuat
+                data:
+                  id: 13
+                  nama: PT Sinar Abadi
+                  amId: 3
+                  amNama: Budi Santoso
+                  industriId: 2
+                  industriNama: Manufaktur
+                  statusPeluang: PROSPEK
+                  jenisCustomer: Korporat
+                errors: null
+                meta:
+                  timestamp: '2026-07-05T03:11:00Z'
+        '400':
+          description: Validasi gagal (nama, statusPeluang, amId, atau industriId tidak ditemukan)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiResponse'
+              examples:
+                amNotFound:
+                  summary: amId tidak ditemukan
+                  value:
+                    success: false
+                    message: Account Manager (karyawan) tidak ditemukan
+                    data: null
+                    errors:
+                      code: VALIDATION_ERROR
+                      message: Account Manager (karyawan) tidak ditemukan
+                      details: null
+                    meta:
+                      timestamp: '2026-07-05T03:11:00Z'
+                industriNotFound:
+                  summary: industriId tidak ditemukan
+                  value:
+                    success: false
+                    message: Industri tidak ditemukan
+                    data: null
+                    errors:
+                      code: VALIDATION_ERROR
+                      message: Industri tidak ditemukan
+                      details: null
+                    meta:
+                      timestamp: '2026-07-05T03:11:00Z'
+                namaInvalid:
+                  summary: Nama tidak sesuai panjang
+                  value:
+                    success: false
+                    message: Nama customer wajib diisi, panjang 3-150 karakter
+                    data: null
+                    errors:
+                      code: VALIDATION_ERROR
+                      message: Nama customer wajib diisi, panjang 3-150 karakter
+                      details: null
+                    meta:
+                      timestamp: '2026-07-05T03:11:00Z'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '500':
+          $ref: '#/components/responses/InternalError'
+  /api/v1/master/customers/{id}:
+    parameters:
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: integer
+    get:
+      tags:
+        - Customer
+      summary: Detail customer (dengan amNama, industriNama)
+      responses:
+        '200':
+          description: Detail customer berhasil diambil
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiResponse'
+              example:
+                success: true
+                message: Detail customer berhasil diambil
+                data:
+                  id: 1
+                  nama: PT Sinar Abadi
+                  amId: 3
+                  amNama: Budi Santoso
+                  industriId: 2
+                  industriNama: Manufaktur
+                  statusPeluang: NEGOSIASI
+                  jenisCustomer: Korporat
+                  createdAt: '2026-01-15T04:00:00Z'
+                  updatedAt: null
+                  createdBy: 2986721c-0cc2-42ba-91f2-95c00ae7e8b9
+                  updatedBy: null
+                errors: null
+                meta:
+                  timestamp: '2026-07-05T03:12:00Z'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          description: Customer tidak ditemukan
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiResponse'
+              example:
+                success: false
+                message: Customer dengan id 999 tidak ditemukan
+                data: null
+                errors:
+                  code: NOT_FOUND
+                  message: Customer dengan id 999 tidak ditemukan
+                  details: null
+                meta:
+                  timestamp: '2026-07-05T03:12:00Z'
+        '500':
+          $ref: '#/components/responses/InternalError'
+    put:
+      tags:
+        - Customer
+      summary: Ubah customer
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CustomerUpdateRequest'
+            example:
+              nama: PT Sinar Abadi Sejahtera
+              amId: 3
+              industriId: 2
+              statusPeluang: DEAL
+              jenisCustomer: Korporat
+      responses:
+        '200':
+          description: Customer berhasil diperbarui (response DETAIL, termasuk amNama/industriNama)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiResponse'
+              example:
+                success: true
+                message: Customer berhasil diperbarui
+                data:
+                  id: 1
+                  nama: PT Sinar Abadi Sejahtera
+                  amId: 3
+                  amNama: Budi Santoso
+                  industriId: 2
+                  industriNama: Manufaktur
+                  statusPeluang: DEAL
+                  jenisCustomer: Korporat
+                errors: null
+                meta:
+                  timestamp: '2026-07-05T03:13:00Z'
+        '400':
+          description: Validasi gagal (nama, statusPeluang, amId, atau industriId tidak ditemukan)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiResponse'
+              example:
+                success: false
+                message: status_peluang harus salah satu dari PROSPEK, NEGOSIASI, DEAL, BATAL
+                data: null
+                errors:
+                  code: VALIDATION_ERROR
+                  message: status_peluang harus salah satu dari PROSPEK, NEGOSIASI, DEAL, BATAL
+                  details: null
+                meta:
+                  timestamp: '2026-07-05T03:13:00Z'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          description: Customer tidak ditemukan
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiResponse'
+              example:
+                success: false
+                message: Customer dengan id 999 tidak ditemukan
+                data: null
+                errors:
+                  code: NOT_FOUND
+                  message: Customer dengan id 999 tidak ditemukan
+                  details: null
+                meta:
+                  timestamp: '2026-07-05T03:13:00Z'
+        '500':
+          $ref: '#/components/responses/InternalError'
+    delete:
+      tags:
+        - Customer
+      summary: Soft delete customer
+      description: Menolak jika customer masih memiliki baris aktif di `proyek`, `contact`, `kontrak_payung`, atau `kontrak_biasa`.
+      responses:
+        '200':
+          description: Customer berhasil dihapus
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiResponse'
+              example:
+                success: true
+                message: Customer berhasil dihapus
+                data: null
+                errors: null
+                meta:
+                  timestamp: '2026-07-05T03:14:00Z'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          description: Customer tidak ditemukan
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiResponse'
+              example:
+                success: false
+                message: Customer dengan id 999 tidak ditemukan
+                data: null
+                errors:
+                  code: NOT_FOUND
+                  message: Customer dengan id 999 tidak ditemukan
+                  details: null
+                meta:
+                  timestamp: '2026-07-05T03:14:00Z'
+        '409':
+          description: Customer masih memiliki Proyek/Contact/Kontrak aktif
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiResponse'
+              example:
+                success: false
+                message: Customer tidak dapat dihapus karena masih memiliki Proyek/Contact/Kontrak aktif
+                data: null
+                errors:
+                  code: CONFLICT
+                  message: Customer tidak dapat dihapus karena masih memiliki Proyek/Contact/Kontrak aktif
+                  details: null
+                meta:
+                  timestamp: '2026-07-05T03:14:00Z'
+        '500':
+          $ref: '#/components/responses/InternalError'
+  /api/v1/master/contacts:
+    get:
+      tags:
+        - Contact
+      summary: Daftar contact (paginated)
+      description: '`customer_id` adalah filter yang paling sering dipakai -- tampilan detail Customer akan menampilkan daftar Contact-nya lewat parameter ini.'
+      parameters:
+        - name: customer_id
+          in: query
+          description: Filter contact milik customer ini (query paling umum)
+          schema:
+            type: integer
+        - name: search
+          in: query
+          description: Filter ILIKE pada `nama`, `email`, atau `jabatan`
+          schema:
+            type: string
+        - name: tipe_kontak
+          in: query
+          schema:
+            type: string
+            enum:
+              - UTAMA
+              - AKTIF
+              - PROSPEK
+        - name: page
+          in: query
+          schema:
+            type: integer
+            default: 1
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            default: 20
+      responses:
+        '200':
+          description: Daftar contact berhasil diambil
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiResponse'
+              example:
+                success: true
+                message: Daftar contact berhasil diambil
+                data:
+                  - id: 1
+                    customerId: 10
+                    nama: Budi Santoso
+                    jabatan: IT Manager
+                    email: budi@acme.co.id
+                    telepon: +62 812-3456-7890
+                    tipeKontak: UTAMA
+                  - id: 2
+                    customerId: 10
+                    nama: Sari Dewi
+                    jabatan: null
+                    email: null
+                    telepon: 021-555-1234
+                    tipeKontak: AKTIF
+                errors: null
+                meta:
+                  timestamp: '2026-07-05T03:20:00Z'
+                  pagination:
+                    page: 1
+                    limit: 20
+                    totalItems: 2
+                    totalPages: 1
+        '400':
+          description: Nilai `tipe_kontak` tidak valid
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiResponse'
+              example:
+                success: false
+                message: tipe_kontak harus UTAMA, AKTIF, atau PROSPEK
+                data: null
+                errors:
+                  code: VALIDATION_ERROR
+                  message: tipe_kontak harus UTAMA, AKTIF, atau PROSPEK
+                  details: null
+                meta:
+                  timestamp: '2026-07-05T03:20:00Z'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '500':
+          $ref: '#/components/responses/InternalError'
+    post:
+      tags:
+        - Contact
+      summary: Buat contact baru
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ContactCreateRequest'
+            example:
+              customerId: 10
+              nama: Budi Santoso
+              jabatan: IT Manager
+              email: budi@acme.co.id
+              telepon: +62 812-3456-7890
+              tipeKontak: UTAMA
+      responses:
+        '201':
+          description: Contact berhasil dibuat
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiResponse'
+              example:
+                success: true
+                message: Contact berhasil dibuat
+                data:
+                  id: 3
+                  customerId: 10
+                  nama: Budi Santoso
+                  jabatan: IT Manager
+                  email: budi@acme.co.id
+                  telepon: +62 812-3456-7890
+                  tipeKontak: UTAMA
+                errors: null
+                meta:
+                  timestamp: '2026-07-05T03:21:00Z'
+        '400':
+          description: Validasi gagal (customerId, nama, jabatan, email, telepon, atau tipeKontak)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiResponse'
+              examples:
+                customerNotFound:
+                  summary: customerId tidak ditemukan
+                  value:
+                    success: false
+                    message: Customer tidak ditemukan
+                    data: null
+                    errors:
+                      code: VALIDATION_ERROR
+                      message: Customer tidak ditemukan
+                      details: null
+                    meta:
+                      timestamp: '2026-07-05T03:21:00Z'
+                emailFormatInvalid:
+                  summary: Format email tidak valid
+                  value:
+                    success: false
+                    message: Format email tidak valid
+                    data: null
+                    errors:
+                      code: VALIDATION_ERROR
+                      message: Format email tidak valid
+                      details: null
+                    meta:
+                      timestamp: '2026-07-05T03:21:00Z'
+                teleponInvalid:
+                  summary: Format telepon tidak valid
+                  value:
+                    success: false
+                    message: Format telepon tidak valid
+                    data: null
+                    errors:
+                      code: VALIDATION_ERROR
+                      message: Format telepon tidak valid
+                      details: null
+                    meta:
+                      timestamp: '2026-07-05T03:21:00Z'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '409':
+          description: Kombinasi customer + email sudah digunakan contact lain pada customer yang sama
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiResponse'
+              example:
+                success: false
+                message: Email sudah digunakan oleh contact lain pada customer ini
+                data: null
+                errors:
+                  code: CONFLICT
+                  message: Email sudah digunakan oleh contact lain pada customer ini
+                  details: null
+                meta:
+                  timestamp: '2026-07-05T03:21:00Z'
+        '500':
+          $ref: '#/components/responses/InternalError'
+  /api/v1/master/contacts/{id}:
+    parameters:
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: integer
+    get:
+      tags:
+        - Contact
+      summary: Detail contact
+      responses:
+        '200':
+          description: Detail contact berhasil diambil
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiResponse'
+              example:
+                success: true
+                message: Detail contact berhasil diambil
+                data:
+                  id: 1
+                  customerId: 10
+                  nama: Budi Santoso
+                  jabatan: IT Manager
+                  email: budi@acme.co.id
+                  telepon: +62 812-3456-7890
+                  tipeKontak: UTAMA
+                  createdAt: '2026-02-01T02:00:00Z'
+                  updatedAt: null
+                  createdBy: 2986721c-0cc2-42ba-91f2-95c00ae7e8b9
+                  updatedBy: null
+                errors: null
+                meta:
+                  timestamp: '2026-07-05T03:22:00Z'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          description: Contact tidak ditemukan
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiResponse'
+              example:
+                success: false
+                message: Contact dengan id 999 tidak ditemukan
+                data: null
+                errors:
+                  code: NOT_FOUND
+                  message: Contact dengan id 999 tidak ditemukan
+                  details: null
+                meta:
+                  timestamp: '2026-07-05T03:22:00Z'
+        '500':
+          $ref: '#/components/responses/InternalError'
+    put:
+      tags:
+        - Contact
+      summary: Ubah contact
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ContactUpdateRequest'
+            example:
+              customerId: 10
+              nama: Budi Santoso
+              jabatan: Head of IT
+              email: budi@acme.co.id
+              telepon: +62 812-3456-7890
+              tipeKontak: UTAMA
+      responses:
+        '200':
+          description: Contact berhasil diperbarui
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiResponse'
+              example:
+                success: true
+                message: Contact berhasil diperbarui
+                data:
+                  id: 1
+                  customerId: 10
+                  nama: Budi Santoso
+                  jabatan: Head of IT
+                  email: budi@acme.co.id
+                  telepon: +62 812-3456-7890
+                  tipeKontak: UTAMA
+                errors: null
+                meta:
+                  timestamp: '2026-07-05T03:23:00Z'
+        '400':
+          description: Validasi gagal (customerId, nama, jabatan, email, telepon, atau tipeKontak)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiResponse'
+              example:
+                success: false
+                message: tipe_kontak harus UTAMA, AKTIF, atau PROSPEK
+                data: null
+                errors:
+                  code: VALIDATION_ERROR
+                  message: tipe_kontak harus UTAMA, AKTIF, atau PROSPEK
+                  details: null
+                meta:
+                  timestamp: '2026-07-05T03:23:00Z'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          description: Contact tidak ditemukan
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiResponse'
+              example:
+                success: false
+                message: Contact dengan id 999 tidak ditemukan
+                data: null
+                errors:
+                  code: NOT_FOUND
+                  message: Contact dengan id 999 tidak ditemukan
+                  details: null
+                meta:
+                  timestamp: '2026-07-05T03:23:00Z'
+        '409':
+          description: Kombinasi customer + email (baru) sudah dipakai contact lain
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiResponse'
+              example:
+                success: false
+                message: Email sudah digunakan oleh contact lain pada customer ini
+                data: null
+                errors:
+                  code: CONFLICT
+                  message: Email sudah digunakan oleh contact lain pada customer ini
+                  details: null
+                meta:
+                  timestamp: '2026-07-05T03:23:00Z'
+        '500':
+          $ref: '#/components/responses/InternalError'
+    delete:
+      tags:
+        - Contact
+      summary: Soft delete contact
+      description: Contact tidak punya tabel anak yang mereferensikannya, sehingga tidak ada pengecekan dependency (tidak ada response 409).
+      responses:
+        '200':
+          description: Contact berhasil dihapus
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiResponse'
+              example:
+                success: true
+                message: Contact berhasil dihapus
+                data: null
+                errors: null
+                meta:
+                  timestamp: '2026-07-05T03:24:00Z'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          description: Contact tidak ditemukan
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiResponse'
+              example:
+                success: false
+                message: Contact dengan id 999 tidak ditemukan
+                data: null
+                errors:
+                  code: NOT_FOUND
+                  message: Contact dengan id 999 tidak ditemukan
+                  details: null
+                meta:
+                  timestamp: '2026-07-05T03:24:00Z'
+        '500':
+          $ref: '#/components/responses/InternalError'
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+      description: 'Access Token dari WSO2 Identity Server (IS), divalidasi Ballerina secara deklaratif via `@http:ServiceConfig { auth: [...] }` memakai JWKS WSO2 IS (signature, issuer, audience, expiry). Header: `Authorization: Bearer <access_token>`. Header `apikey` (API Key WSO2 APIM) TIDAK didefinisikan di kontrak ini -- itu divalidasi oleh API Gateway (APIM), bukan oleh service ini.'
+  responses:
+    Unauthorized:
+      description: Tidak terautentikasi. Ada DUA bentuk body yang mungkin terjadi -- lihat `examples` di bawah dan catatan lengkap di `info.description`.
+      content:
+        application/json:
+          schema:
+            oneOf:
+              - $ref: '#/components/schemas/ApiResponse'
+              - $ref: '#/components/schemas/FrameworkErrorResponse'
+          examples:
+            guardRejection:
+              summary: PALING UMUM -- ditolak guard JWT sebelum resource dijalankan (BUKAN amplop ApiResponse; TERKONFIRMASI lewat pengujian, tidak bisa dinormalkan lewat interceptor Ballerina)
+              value:
+                timestamp: '2026-07-05T02:00:00Z'
+                status: 401
+                reason: Unauthorized
+                message: ''
+                path: /api/v1/master/units
+                method: GET
+            applicationLevel:
+              summary: JARANG -- dari subjectFromAccessToken() di kode aplikasi (memang amplop ApiResponse)
+              value:
+                success: false
+                message: Access token tidak valid
+                data: null
+                errors:
+                  code: UNAUTHORIZED
+                  message: Access token tidak valid
+                  details: null
+                meta:
+                  timestamp: '2026-07-05T02:00:00Z'
+    Forbidden:
+      description: Tidak punya akses. Reserved untuk role-based access control di masa depan (belum ditegakkan oleh endpoint mana pun saat ini).
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ApiResponse'
+          example:
+            success: false
+            message: Anda tidak memiliki akses untuk melakukan aksi ini
+            data: null
+            errors:
+              code: FORBIDDEN
+              message: Anda tidak memiliki akses untuk melakukan aksi ini
+              details: null
+            meta:
+              timestamp: '2026-07-05T02:00:00Z'
+    InternalError:
+      description: Error tak terduga di server
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ApiResponse'
+          example:
+            success: false
+            message: Terjadi kesalahan pada server, silakan coba lagi nanti
+            data: null
+            errors:
+              code: INTERNAL_ERROR
+              message: Terjadi kesalahan pada server, silakan coba lagi nanti
+              details: null
+            meta:
+              timestamp: '2026-07-05T02:00:00Z'
+  schemas:
+    FrameworkErrorResponse:
+      type: object
+      description: Bentuk error BAWAAN Ballerina (BUKAN amplop ApiResponse), dipakai untuk penolakan yang terjadi SEBELUM resource function dijalankan -- terutama kegagalan guard JWT `@http:ServiceConfig` (401) dan kegagalan data-binding payload/parameter (400). TERKONFIRMASI lewat pengujian bahwa `http:RequestErrorInterceptor` dan `http:ResponseInterceptor` tidak dapat menormalkan bentuk ini ke amplop ApiResponse.
+      properties:
+        timestamp:
+          type: string
+          format: date-time
+        status:
+          type: integer
+          example: 401
+        reason:
+          type: string
+          example: Unauthorized
+        message:
+          type: string
+          description: Sering kosong ("") untuk kegagalan auth guard.
+        path:
+          type: string
+        method:
+          type: string
+          example: GET
+    ErrorDetail:
+      type: object
+      nullable: true
+      properties:
+        code:
+          type: string
+          example: VALIDATION_ERROR
+        message:
+          type: string
+        details:
+          nullable: true
+    Pagination:
+      type: object
+      properties:
+        page:
+          type: integer
+          example: 1
+        limit:
+          type: integer
+          example: 20
+        totalItems:
+          type: integer
+          example: 42
+        totalPages:
+          type: integer
+          example: 3
+    ResponseMeta:
+      type: object
+      properties:
+        timestamp:
+          type: string
+          format: date-time
+        requestId:
+          type: string
+          nullable: true
+        pagination:
+          allOf:
+            - $ref: '#/components/schemas/Pagination'
+          nullable: true
+    ApiResponse:
+      type: object
+      description: Amplop response standar, dipakai sebagai response body SEMUA endpoint di API ini (sukses maupun error). Bentuk `data` bervariasi per operasi -- lihat masing-masing `example`/`examples` di setiap response.
+      required:
+        - success
+        - message
+      properties:
+        success:
+          type: boolean
+          description: true jika request berhasil, false jika gagal.
+        message:
+          type: string
+          description: Pesan yang mudah dibaca oleh user atau frontend.
+        data:
+          nullable: true
+          description: Payload hasil request. Null saat error.
+        errors:
+          allOf:
+            - $ref: '#/components/schemas/ErrorDetail'
+          nullable: true
+        meta:
+          $ref: '#/components/schemas/ResponseMeta'
+    Unit:
+      type: object
+      properties:
+        id:
+          type: integer
+        namaUnit:
+          type: string
+        parentUnitId:
+          type: integer
+          nullable: true
+        status:
+          type: string
+          enum:
+            - AKTIF
+            - TIDAK_AKTIF
+        createdAt:
+          type: string
+          format: date-time
+        updatedAt:
+          type: string
+          format: date-time
+          nullable: true
+        createdBy:
+          type: string
+          description: Subject ID (claim `sub`) WSO2 IS dari pembuat data
+        updatedBy:
+          type: string
+          nullable: true
+    UnitCreateRequest:
+      type: object
+      required:
+        - namaUnit
+      properties:
+        namaUnit:
+          type: string
+          minLength: 3
+          maxLength: 100
+        parentUnitId:
+          type: integer
+          nullable: true
+          description: Id unit induk. Kosongkan/null untuk unit level teratas.
+        status:
+          type: string
+          enum:
+            - AKTIF
+            - TIDAK_AKTIF
+          default: AKTIF
+    UnitUpdateRequest:
+      type: object
+      required:
+        - namaUnit
+        - status
+      properties:
+        namaUnit:
+          type: string
+          minLength: 3
+          maxLength: 100
+        parentUnitId:
+          type: integer
+          nullable: true
+        status:
+          type: string
+          enum:
+            - AKTIF
+            - TIDAK_AKTIF
+    UnitTreeNode:
+      type: object
+      properties:
+        id:
+          type: integer
+        namaUnit:
+          type: string
+        parentUnitId:
+          type: integer
+          nullable: true
+        status:
+          type: string
+          enum:
+            - AKTIF
+            - TIDAK_AKTIF
+        children:
+          type: array
+          items:
+            $ref: '#/components/schemas/UnitTreeNode'
+    Industri:
+      type: object
+      properties:
+        id:
+          type: integer
+        kode:
+          type: string
+          maxLength: 20
+        nama:
+          type: string
+        createdAt:
+          type: string
+          format: date-time
+        updatedAt:
+          type: string
+          format: date-time
+          nullable: true
+        createdBy:
+          type: string
+        updatedBy:
+          type: string
+          nullable: true
+    IndustriCreateRequest:
+      type: object
+      required:
+        - kode
+        - nama
+      properties:
+        kode:
+          type: string
+          maxLength: 20
+          description: Disimpan uppercase, unik case-insensitive.
+        nama:
+          type: string
+          minLength: 3
+          maxLength: 100
+    IndustriUpdateRequest:
+      type: object
+      required:
+        - kode
+        - nama
+      properties:
+        kode:
+          type: string
+          maxLength: 20
+        nama:
+          type: string
+          minLength: 3
+          maxLength: 100
+    Tags:
+      type: object
+      properties:
+        id:
+          type: integer
+        kode:
+          type: string
+          maxLength: 20
+        nama:
+          type: string
+        unitId:
+          type: integer
+          nullable: true
+        createdAt:
+          type: string
+          format: date-time
+        updatedAt:
+          type: string
+          format: date-time
+          nullable: true
+        createdBy:
+          type: string
+        updatedBy:
+          type: string
+          nullable: true
+    TagsCreateRequest:
+      type: object
+      required:
+        - kode
+        - nama
+      properties:
+        kode:
+          type: string
+          minLength: 1
+          maxLength: 20
+        nama:
+          type: string
+          minLength: 1
+          maxLength: 100
+        unitId:
+          type: integer
+          nullable: true
+          description: Kosongkan/null untuk tag global.
+    TagsUpdateRequest:
+      type: object
+      required:
+        - kode
+        - nama
+      properties:
+        kode:
+          type: string
+          minLength: 1
+          maxLength: 20
+        nama:
+          type: string
+          minLength: 1
+          maxLength: 100
+        unitId:
+          type: integer
+          nullable: true
+    ResourceTags:
+      type: object
+      properties:
+        id:
+          type: integer
+        kode:
+          type: string
+          maxLength: 20
+        nama:
+          type: string
+        unitId:
+          type: integer
+          nullable: true
+        deskripsi:
+          type: string
+          nullable: true
+        status:
+          type: string
+          enum:
+            - AKTIF
+            - TIDAK_AKTIF
+        createdAt:
+          type: string
+          format: date-time
+        updatedAt:
+          type: string
+          format: date-time
+          nullable: true
+        createdBy:
+          type: string
+        updatedBy:
+          type: string
+          nullable: true
+    ResourceTagsCreateRequest:
+      type: object
+      required:
+        - kode
+        - nama
+      properties:
+        kode:
+          type: string
+          minLength: 1
+          maxLength: 20
+        nama:
+          type: string
+          minLength: 1
+          maxLength: 100
+        unitId:
+          type: integer
+          nullable: true
+        deskripsi:
+          type: string
+          nullable: true
+        status:
+          type: string
+          enum:
+            - AKTIF
+            - TIDAK_AKTIF
+          default: AKTIF
+    ResourceTagsUpdateRequest:
+      type: object
+      required:
+        - kode
+        - nama
+        - status
+      properties:
+        kode:
+          type: string
+          minLength: 1
+          maxLength: 20
+        nama:
+          type: string
+          minLength: 1
+          maxLength: 100
+        unitId:
+          type: integer
+          nullable: true
+        deskripsi:
+          type: string
+          nullable: true
+        status:
+          type: string
+          enum:
+            - AKTIF
+            - TIDAK_AKTIF
+    KategoriSurat:
+      type: object
+      properties:
+        id:
+          type: integer
+        kode:
+          type: string
+          pattern: ^DR-[0-9]{2}$
+          example: DR-01
+        nama:
+          type: string
+          maxLength: 150
+        isDefault:
+          type: boolean
+          readOnly: true
+          description: true untuk 9 kategori bawaan (DR-01..DR-09) yang diseed lewat migrasi. Hanya diatur lewat seeding/migrasi database, tidak lewat API ini.
+        createdAt:
+          type: string
+          format: date-time
+        updatedAt:
+          type: string
+          format: date-time
+          nullable: true
+        createdBy:
+          type: string
+        updatedBy:
+          type: string
+          nullable: true
+    KategoriSuratCreateRequest:
+      type: object
+      description: '`isDefault` SENGAJA tidak ada sebagai field -- kategori baru SELALU `isDefault = false`. Jika dikirim, diabaikan server (tidak error).'
+      required:
+        - kode
+        - nama
+      additionalProperties: true
+      properties:
+        kode:
+          type: string
+          pattern: ^DR-[0-9]{2}$
+          example: DR-10
+        nama:
+          type: string
+          maxLength: 150
+    KategoriSuratUpdateRequest:
+      type: object
+      description: '`isDefault` SENGAJA tidak ada sebagai field -- tidak dapat diubah lewat API ini. Jika dikirim, diabaikan server (tidak error).'
+      required:
+        - kode
+        - nama
+      additionalProperties: true
+      properties:
+        kode:
+          type: string
+          pattern: ^DR-[0-9]{2}$
+        nama:
+          type: string
+          maxLength: 150
+    KaryawanListItem:
+      type: object
+      description: Bentuk data pada response LIST. TIDAK menyertakan `subjectId`.
+      properties:
+        id:
+          type: integer
+        nik:
+          type: string
+          maxLength: 30
+        nama:
+          type: string
+        jabatan:
+          type: string
+          nullable: true
+        unitId:
+          type: integer
+        email:
+          type: string
+          format: email
+        noHp:
+          type: string
+          nullable: true
+        tanggalMasuk:
+          type: string
+          format: date
+          nullable: true
+        status:
+          type: string
+          enum:
+            - AKTIF
+            - TIDAK_AKTIF
+    KaryawanDetail:
+      type: object
+      description: Bentuk data pada response DETAIL (by-id) dan create/update. Menyertakan `subjectId` dan kolom audit.
+      properties:
+        id:
+          type: integer
+        nik:
+          type: string
+          maxLength: 30
+        nama:
+          type: string
+        jabatan:
+          type: string
+          nullable: true
+        unitId:
+          type: integer
+        email:
+          type: string
+          format: email
+        noHp:
+          type: string
+          nullable: true
+        tanggalMasuk:
+          type: string
+          format: date
+          nullable: true
+        status:
+          type: string
+          enum:
+            - AKTIF
+            - TIDAK_AKTIF
+        subjectId:
+          type: string
+          nullable: true
+          description: Subject ID WSO2 IS yang ditautkan, atau null bila karyawan belum/tidak punya akun portal. SECURITY-SENSITIVE.
+        createdAt:
+          type: string
+          format: date-time
+        updatedAt:
+          type: string
+          format: date-time
+          nullable: true
+        createdBy:
+          type: string
+        updatedBy:
+          type: string
+          nullable: true
+    KaryawanCreateRequest:
+      type: object
+      required:
+        - nik
+        - nama
+        - unitId
+        - email
+      properties:
+        nik:
+          type: string
+          minLength: 1
+          maxLength: 30
+        nama:
+          type: string
+          minLength: 3
+          maxLength: 150
+        jabatan:
+          type: string
+          nullable: true
+        unitId:
+          type: integer
+        email:
+          type: string
+          format: email
+        noHp:
+          type: string
+          nullable: true
+        tanggalMasuk:
+          type: string
+          format: date
+          nullable: true
+        status:
+          type: string
+          enum:
+            - AKTIF
+            - TIDAK_AKTIF
+          default: AKTIF
+        subjectId:
+          type: string
+          nullable: true
+          description: Opsional. Isi untuk menautkan ke akun WSO2 IS; kosongkan/null jika belum punya akun portal.
+    KaryawanUpdateRequest:
+      type: object
+      required:
+        - nik
+        - nama
+        - unitId
+        - email
+        - status
+      properties:
+        nik:
+          type: string
+          minLength: 1
+          maxLength: 30
+        nama:
+          type: string
+          minLength: 3
+          maxLength: 150
+        jabatan:
+          type: string
+          nullable: true
+        unitId:
+          type: integer
+        email:
+          type: string
+          format: email
+        noHp:
+          type: string
+          nullable: true
+        tanggalMasuk:
+          type: string
+          format: date
+          nullable: true
+        status:
+          type: string
+          enum:
+            - AKTIF
+            - TIDAK_AKTIF
+        subjectId:
+          type: string
+          nullable: true
+          description: Opsional. Kirim null/string kosong untuk melepas tautan akun portal.
+    Customer:
+      type: object
+      description: Bentuk data pada response LIST (id mentah, tanpa nama hasil join).
+      properties:
+        id:
+          type: integer
+        nama:
+          type: string
+        amId:
+          type: integer
+          nullable: true
+        industriId:
+          type: integer
+          nullable: true
+        statusPeluang:
+          type: string
+          enum:
+            - PROSPEK
+            - NEGOSIASI
+            - DEAL
+            - BATAL
+        jenisCustomer:
+          type: string
+          nullable: true
+    CustomerDetail:
+      type: object
+      description: Bentuk data pada response DETAIL dan create/update. Menyertakan `amNama`/`industriNama` hasil LEFT JOIN.
+      properties:
+        id:
+          type: integer
+        nama:
+          type: string
+        amId:
+          type: integer
+          nullable: true
+        amNama:
+          type: string
+          nullable: true
+          description: Nama karyawan Account Manager (null bila amId kosong atau karyawan sudah dihapus).
+        industriId:
+          type: integer
+          nullable: true
+        industriNama:
+          type: string
+          nullable: true
+        statusPeluang:
+          type: string
+          enum:
+            - PROSPEK
+            - NEGOSIASI
+            - DEAL
+            - BATAL
+        jenisCustomer:
+          type: string
+          nullable: true
+        createdAt:
+          type: string
+          format: date-time
+        updatedAt:
+          type: string
+          format: date-time
+          nullable: true
+        createdBy:
+          type: string
+        updatedBy:
+          type: string
+          nullable: true
+    CustomerCreateRequest:
+      type: object
+      required:
+        - nama
+      properties:
+        nama:
+          type: string
+          minLength: 3
+          maxLength: 150
+        amId:
+          type: integer
+          nullable: true
+          description: Id karyawan Account Manager. Kosongkan/null jika belum ditentukan.
+        industriId:
+          type: integer
+          nullable: true
+        statusPeluang:
+          type: string
+          enum:
+            - PROSPEK
+            - NEGOSIASI
+            - DEAL
+            - BATAL
+          default: PROSPEK
+        jenisCustomer:
+          type: string
+          nullable: true
+    CustomerUpdateRequest:
+      type: object
+      required:
+        - nama
+        - statusPeluang
+      properties:
+        nama:
+          type: string
+          minLength: 3
+          maxLength: 150
+        amId:
+          type: integer
+          nullable: true
+        industriId:
+          type: integer
+          nullable: true
+        statusPeluang:
+          type: string
+          enum:
+            - PROSPEK
+            - NEGOSIASI
+            - DEAL
+            - BATAL
+        jenisCustomer:
+          type: string
+          nullable: true
+    Contact:
+      type: object
+      properties:
+        id:
+          type: integer
+        customerId:
+          type: integer
+        nama:
+          type: string
+        jabatan:
+          type: string
+          nullable: true
+        email:
+          type: string
+          format: email
+          nullable: true
+        telepon:
+          type: string
+          nullable: true
+        tipeKontak:
+          type: string
+          enum:
+            - UTAMA
+            - AKTIF
+            - PROSPEK
+          description: PERAN kontak (bukan status aktif/nonaktif -- soft-delete tetap lewat is_deleted).
+        createdAt:
+          type: string
+          format: date-time
+        updatedAt:
+          type: string
+          format: date-time
+          nullable: true
+        createdBy:
+          type: string
+        updatedBy:
+          type: string
+          nullable: true
+    ContactCreateRequest:
+      type: object
+      required:
+        - customerId
+        - nama
+      properties:
+        customerId:
+          type: integer
+        nama:
+          type: string
+          minLength: 1
+          maxLength: 100
+        jabatan:
+          type: string
+          nullable: true
+          maxLength: 100
+        email:
+          type: string
+          format: email
+          nullable: true
+        telepon:
+          type: string
+          nullable: true
+          maxLength: 30
+          description: Hanya boleh berisi digit, spasi, +, -, dan ().
+        tipeKontak:
+          type: string
+          enum:
+            - UTAMA
+            - AKTIF
+            - PROSPEK
+          default: AKTIF
+    ContactUpdateRequest:
+      type: object
+      required:
+        - customerId
+        - nama
+        - tipeKontak
+      properties:
+        customerId:
+          type: integer
+        nama:
+          type: string
+          minLength: 1
+          maxLength: 100
+        jabatan:
+          type: string
+          nullable: true
+          maxLength: 100
+        email:
+          type: string
+          format: email
+          nullable: true
+        telepon:
+          type: string
+          nullable: true
+          maxLength: 30
+        tipeKontak:
+          type: string
+          enum:
+            - UTAMA
+            - AKTIF
+            - PROSPEK
+    LoginRequest:
+      type: object
+      required:
+        - username
+        - password
+      properties:
+        username:
+          type: string
+          example: admin
+        password:
+          type: string
+          format: password
+          example: '!AdminSWA123#'
+    TokenExchangeRequest:
+      type: object
+      required:
+        - code
+      properties:
+        code:
+          type: string
+          description: Authorization code returned by the WSO2 IS authenticate step
+    RefreshRequest:
+      type: object
+      required:
+        - refreshToken
+      properties:
+        refreshToken:
+          type: string
+    IntrospectRequest:
+      type: object
+      required:
+        - token
+      properties:
+        token:
+          type: string
+        tokenTypeHint:
+          type: string
+          enum:
+            - access_token
+            - refresh_token
+          nullable: true
+    RevokeRequest:
+      type: object
+      required:
+        - token
+      properties:
+        token:
+          type: string
+        tokenTypeHint:
+          type: string
+          enum:
+            - access_token
+            - refresh_token
+          nullable: true
+    LogoutRequest:
+      type: object
+      required:
+        - idToken
+      properties:
+        idToken:
+          type: string
+    AuthInitAuthenticator:
+      type: object
+      properties:
+        authenticatorId:
+          type: string
+        authenticator:
+          type: string
+          example: Username & Password
+        idp:
+          type: string
+          example: LOCAL
+        metadata:
+          type: object
+          additionalProperties: true
+        requiredParams:
+          type: array
+          items:
+            type: string
+    InitResponse:
+      type: object
+      properties:
+        flowId:
+          type: string
+        authenticators:
+          type: array
+          items:
+            $ref: '#/components/schemas/AuthInitAuthenticator'
+    LoginResponse:
+      type: object
+      properties:
+        accessToken:
+          type: string
+        refreshToken:
+          type: string
+          nullable: true
+        idToken:
+          type: string
+          nullable: true
+        tokenType:
+          type: string
+          example: Bearer
+        expiresIn:
+          type: integer
+          example: 3600
+        scope:
+          type: string
+          nullable: true
+        user:
+          type: object
+          description: Decoded id_token claims (sub, org_id, ...)
+          additionalProperties: true
+    IntrospectResponse:
+      type: object
+      required:
+        - active
+      properties:
+        active:
+          type: boolean
+      additionalProperties: true
+      description: '`active` plus a variable set of claims returned by WSO2 (scope, username, exp, client_id, ...) depending on the token being inspected.'
+    AuthErrorDetail:
+      type: object
+      properties:
+        code:
+          type: string
+          example: UNAUTHORIZED
+        message:
+          type: string
+        details:
+          nullable: true
+    AuthResponseMeta:
+      type: object
+      properties:
+        timestamp:
+          type: string
+          format: date-time
+    DashboardSummary:
+      type: object
+      properties:
+        totalProyek:
+          type: integer
+        revenueBulanIni:
+          type: number
+        dealAktif:
+          type: integer
+    NomorSurat:
+      type: object
+      properties:
+        id:
+          type: integer
+        kategoriSuratId:
+          type: integer
+        kategoriKode:
+          type: string
+        kategoriNama:
+          type: string
+        proyekId:
+          type: integer
+          nullable: true
+        kodeProyek:
+          type: string
+          nullable: true
+        namaProyek:
+          type: string
+          nullable: true
+        tanggal:
+          type: string
+          format: date
+        tahun:
+          type: integer
+        urutan:
+          type: integer
+        nomor:
+          type: string
+        tujuan:
+          type: string
+          nullable: true
+        perihal:
+          type: string
+          nullable: true
+        keterangan:
+          type: string
+          nullable: true
+        alasanPembatalan:
+          type: string
+          nullable: true
+        isDibatalkan:
+          type: boolean
+        createdAt:
+          type: string
+          format: date-time
+        updatedAt:
+          type: string
+          format: date-time
+          nullable: true
+        createdBy:
+          type: string
+          nullable: true
+        updatedBy:
+          type: string
+          nullable: true
+    NomorSuratCreateRequest:
+      type: object
+      required:
+        - kategoriSuratId
+        - tanggal
+        - tujuan
+        - perihal
+      properties:
+        kategoriSuratId:
+          type: integer
+        proyekId:
+          type: integer
+          nullable: true
+        tanggal:
+          type: string
+          format: date
+        tujuan:
+          type: string
+          minLength: 1
+          maxLength: 150
+        perihal:
+          type: string
+          minLength: 1
+          maxLength: 255
+        keterangan:
+          type: string
+          nullable: true
+    NomorSuratUpdateRequest:
+      type: object
+      required:
+        - tanggal
+        - tujuan
+        - perihal
+      properties:
+        tanggal:
+          type: string
+          format: date
+        proyekId:
+          type: integer
+          nullable: true
+        tujuan:
+          type: string
+          minLength: 1
+          maxLength: 150
+        perihal:
+          type: string
+          minLength: 1
+          maxLength: 255
+        keterangan:
+          type: string
+          nullable: true
+    NomorSuratPreview:
+      type: object
+      properties:
+        nomorPreview:
+          type: string
+    NomorSuratCancelled:
+      type: object
+      properties:
+        id:
+          type: integer
+        nomor:
+          type: string
+        alasanPembatalan:
+          type: string
+    CancelNomorSuratRequest:
+      type: object
+      required:
+        - alasanPembatalan
+      properties:
+        alasanPembatalan:
+          type: string
+          minLength: 5
+    ProyekDropdownItem:
+      type: object
+      properties:
+        id:
+          type: integer
+        kodeProyek:
+          type: string
+        namaProyek:
+          type: string
+    ApiErrorResponse:
+      type: object
+      properties:
+        success:
+          type: boolean
+          example: false
+        message:
+          type: string
+        data:
+          nullable: true
+          example: null
+        errors:
+          $ref: '#/components/schemas/AuthErrorDetail'
+        meta:
+          $ref: '#/components/schemas/AuthResponseMeta'
+    InitApiResponse:
+      type: object
+      properties:
+        success:
+          type: boolean
+          example: true
+        message:
+          type: string
+          example: Flow autentikasi berhasil dimulai
+        data:
+          $ref: '#/components/schemas/InitResponse'
+        errors:
+          nullable: true
+          example: null
+        meta:
+          $ref: '#/components/schemas/AuthResponseMeta'
+    LoginApiResponse:
+      type: object
+      properties:
+        success:
+          type: boolean
+          example: true
+        message:
+          type: string
+          example: Login berhasil
+        data:
+          $ref: '#/components/schemas/LoginResponse'
+        errors:
+          nullable: true
+          example: null
+        meta:
+          $ref: '#/components/schemas/AuthResponseMeta'
+    UserInfoApiResponse:
+      type: object
+      properties:
+        success:
+          type: boolean
+          example: true
+        message:
+          type: string
+          example: Userinfo berhasil diambil
+        data:
+          type: object
+          description: OIDC userinfo claims (contents vary by requested scope)
+          additionalProperties: true
+        errors:
+          nullable: true
+          example: null
+        meta:
+          $ref: '#/components/schemas/AuthResponseMeta'
+    IntrospectApiResponse:
+      type: object
+      properties:
+        success:
+          type: boolean
+          example: true
+        message:
+          type: string
+          example: Introspeksi token berhasil
+        data:
+          $ref: '#/components/schemas/IntrospectResponse'
+        errors:
+          nullable: true
+          example: null
+        meta:
+          $ref: '#/components/schemas/AuthResponseMeta'
+    EmptyApiResponse:
+      type: object
+      description: Used by endpoints that succeed with no payload (revoke, logout).
+      properties:
+        success:
+          type: boolean
+          example: true
+        message:
+          type: string
+          example: Logout berhasil
+        data:
+          nullable: true
+          example: null
+        errors:
+          nullable: true
+          example: null
+        meta:
+          $ref: '#/components/schemas/AuthResponseMeta'
+    RequestBindingErrorResponse:
+      type: object
+      properties:
+        timestamp:
+          type: string
+          format: date-time
+        status:
+          type: integer
+          example: 400
+        reason:
+          type: string
+          example: Bad Request
+        message:
+          type: string
+          example: 'data binding failed: unrecognized token ...'
+        path:
+          type: string
+          example: /api/v1/auth/login
+        method:
+          type: string
+          example: POST
