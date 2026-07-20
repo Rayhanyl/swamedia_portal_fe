@@ -19,7 +19,7 @@ export async function POST(req: NextRequest) {
   if (!username || !password) {
     return NextResponse.json(
       { message: "Username dan password wajib diisi" },
-      { status: 400 }
+      { status: 400 },
     );
   }
 
@@ -33,7 +33,7 @@ export async function POST(req: NextRequest) {
   } catch {
     return NextResponse.json(
       { message: "Tidak dapat menghubungi server autentikasi" },
-      { status: 502 }
+      { status: 502 },
     );
   }
 
@@ -41,8 +41,11 @@ export async function POST(req: NextRequest) {
 
   if (!res.ok || !body.success || !body.data) {
     return NextResponse.json(
-      { message: body.errors?.message ?? body.message },
-      { status: res.status || 401 }
+      {
+        message: body.errors?.message ?? body.message,
+        code: body.errors?.code,
+      },
+      { status: res.status || 401 },
     );
   }
 

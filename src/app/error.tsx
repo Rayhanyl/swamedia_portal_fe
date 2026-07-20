@@ -15,15 +15,15 @@ export default function Error({
   }, [error]);
 
   return (
-    <main className="flex min-h-screen flex-col items-center justify-center gap-4 bg-background p-8 text-center text-foreground">
+    <main className="bg-background text-foreground flex min-h-screen flex-col items-center justify-center gap-4 p-8 text-center">
       <h1 className="text-2xl font-bold">Terjadi kesalahan</h1>
-      <p className="max-w-md text-sm text-muted-foreground">
+      <p className="text-muted-foreground max-w-md text-sm">
         Maaf, terjadi kesalahan tak terduga. Silakan coba lagi.
       </p>
       <button
         type="button"
         onClick={reset}
-        className="rounded-xl bg-primary px-4 py-2.5 text-sm font-semibold text-primary-foreground transition-colors hover:bg-primary/80"
+        className="bg-primary text-primary-foreground hover:bg-primary/80 rounded-xl px-4 py-2.5 text-sm font-semibold transition-colors"
       >
         Coba lagi
       </button>

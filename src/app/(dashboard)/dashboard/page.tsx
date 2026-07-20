@@ -6,40 +6,13 @@ export default async function DashboardPage() {
   const summary = await getDashboardSummary();
 
   return (
-    <div className="p-6 space-y-6">
-      <div>
-        <h1 className="text-2xl font-bold text-slate-900">Dashboard</h1>
-        <p className="text-sm text-slate-500">
-          Ringkasan proyek &amp; revenue Anda.
-        </p>
+    <>
+      <div className="grid auto-rows-min gap-4 md:grid-cols-3">
+        <div className="bg-muted/50 aspect-video rounded-xl" />
+        <div className="bg-muted/50 aspect-video rounded-xl" />
+        <div className="bg-muted/50 aspect-video rounded-xl" />
       </div>
-
-      <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
-        <Card>
-          <CardHeader>
-            <CardTitle>Total Proyek</CardTitle>
-          </CardHeader>
-          <CardContent className="text-2xl font-bold">
-            {formatCompactNumber(summary.totalProyek)}
-          </CardContent>
-        </Card>
-        <Card>
-          <CardHeader>
-            <CardTitle>Revenue Bulan Ini</CardTitle>
-          </CardHeader>
-          <CardContent className="text-2xl font-bold">
-            {formatCompactNumber(summary.revenueBulanIni)}
-          </CardContent>
-        </Card>
-        <Card>
-          <CardHeader>
-            <CardTitle>Proyek Sedang Dikerjakan</CardTitle>
-          </CardHeader>
-          <CardContent className="text-2xl font-bold">
-            {formatCompactNumber(summary.proyekSedangDikerjakan)}
-          </CardContent>
-        </Card>
-      </div>
-    </div>
+      <div className="bg-muted/50 min-h-[100vh] flex-1 rounded-xl md:min-h-min" />
+    </>
   );
 }

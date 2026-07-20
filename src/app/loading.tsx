@@ -1,8 +1,8 @@
 export default function Loading() {
   return (
-    <div className="flex min-h-screen items-center justify-center bg-background text-foreground">
+    <div className="bg-background text-foreground flex min-h-screen items-center justify-center">
       <div
-        className="h-8 w-8 animate-spin rounded-full border-2 border-muted border-t-foreground"
+        className="border-muted border-t-foreground h-8 w-8 animate-spin rounded-full border-2"
         role="status"
         aria-label="Memuat"
       />

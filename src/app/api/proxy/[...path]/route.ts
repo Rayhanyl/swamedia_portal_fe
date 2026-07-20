@@ -5,25 +5,13 @@ import {
   getSessionCookies,
   setSessionCookies,
 } from "@/lib/auth/session-cookies";
+import { refreshAccessToken } from "@/lib/auth/refresh-token";
 import { BACKEND_BASE_URL } from "@/lib/config";
-import type { ApiResponse } from "@/types/api";
-import type { LoginResponse } from "@/types/auth";
 
 // Titik tunggal yang menempelkan Authorization: Bearer <accessToken> ke setiap
 // request bisnis menuju Ballerina backend, dan otomatis me-refresh sekali kalau
 // backend membalas 401. Browser hanya pernah memanggil /api/proxy/... yang
 // same-origin — token tidak pernah menyentuh JavaScript di browser.
-
-async function refreshAccessToken(refreshToken: string) {
-  const res = await fetch(`${BACKEND_BASE_URL}/api/v1/auth/refresh`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ refreshToken }),
-  });
-  const body: ApiResponse<LoginResponse> = await res.json();
-  if (!res.ok || !body.success || !body.data) return null;
-  return body.data;
-}
 
 async function forward(req: NextRequest, path: string[]) {
   const { accessToken, refreshToken } = await getSessionCookies();
@@ -52,7 +40,7 @@ async function forward(req: NextRequest, path: string[]) {
       await clearSessionCookies();
       return NextResponse.json(
         { success: false, message: "Session expired" },
-        { status: 401 }
+        { status: 401 },
       );
     }
     await setSessionCookies({

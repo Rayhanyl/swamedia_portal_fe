@@ -1,0 +1,14 @@
+services:
+  web:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    ports:
+      - "3000:3000"
+    environment:
+      # Overrides .env.local's `localhost`, which would otherwise point at the
+      # container itself rather than the host running swamedia_portal_be.
+      - BACKEND_BASE_URL=${BACKEND_BASE_URL:-http://host.docker.internal:8080}
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    restart: unless-stopped

@@ -3,6 +3,8 @@
 import { createContext, useContext, useState, type ReactNode } from "react";
 
 import type { AuthUser } from "@/types/auth";
+import { toast } from "@/lib/toast-manager";
+import { LoginError } from "@/lib/auth/login-error";
 
 interface AuthState {
   user: AuthUser | null;
@@ -28,14 +30,20 @@ export function AuthProvider({
       body: JSON.stringify({ username, password }),
     });
     const body = await res.json();
-    if (!res.ok) throw new Error(body.message ?? "Gagal masuk");
+    if (!res.ok) throw new LoginError(body.message ?? "Gagal masuk", body.code);
     setUser(body.user);
+    toast.success("Selamat datang kembali!", "Berhasil masuk");
   }
 
   async function logout() {
     await fetch("/api/logout", { method: "POST" }).catch(() => {});
     setUser(null);
-    window.location.href = "/login";
+    toast.success("Sampai jumpa lagi!", "Berhasil keluar");
+    // Beri jeda supaya toast sempat terlihat sebelum full page reload
+    // (window.location.href) membuang seluruh state React, termasuk toast ini.
+    setTimeout(() => {
+      window.location.href = "/login";
+    }, 600);
   }
 
   return (
