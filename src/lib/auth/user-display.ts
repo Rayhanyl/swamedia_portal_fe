@@ -1,10 +1,13 @@
 import type { AuthUser } from "@/types/auth";
+import { getRoleAvatarColor } from "@/lib/auth/role-color";
 
 export interface UserDisplay {
   name: string;
   email: string;
   avatar: string;
   initials: string;
+  roleLabel?: string;
+  avatarColorClassName: string;
 }
 
 function asString(value: unknown): string | undefined {
@@ -31,5 +34,11 @@ export function getUserDisplay(user: AuthUser | null): UserDisplay {
       .map((part) => part[0]?.toUpperCase())
       .join("") || "U";
 
-  return { name, email, avatar, initials };
+  // Backend menyertakan nama role lewat klaim `swaportal_role_name` (selain
+  // `swaportal_role_id`) — lihat contoh respons /auth/login terbaru.
+  const roleLabel = asString(user?.swaportal_role_name) ?? asString(user?.role);
+  const roleId = asString(user?.swaportal_role_id);
+  const avatarColorClassName = getRoleAvatarColor(roleId);
+
+  return { name, email, avatar, initials, roleLabel, avatarColorClassName };
 }

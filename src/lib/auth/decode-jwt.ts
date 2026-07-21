@@ -1,18 +1,23 @@
-// Baca klaim `exp` dari JWT TANPA verifikasi signature — cukup untuk
-// keputusan "perlu refresh proaktif atau tidak" di proxy.ts. Validitas
-// sesungguhnya (signature/issuer/audience) tetap diverifikasi backend lewat
-// JWKS di setiap request bisnis; ini murni optimisasi UX, bukan gerbang
-// keamanan.
-export function getJwtExpiry(token: string): number | null {
+// Baca payload JWT TANPA verifikasi signature — cukup untuk kebutuhan UX
+// non-keamanan (cek `exp`, tampilkan klaim profil). Validitas sesungguhnya
+// (signature/issuer/audience) tetap diverifikasi backend lewat JWKS di
+// setiap request bisnis; ini bukan gerbang keamanan.
+export function getJwtPayload<T = Record<string, unknown>>(
+  token: string,
+): T | null {
   try {
     const payload = token.split(".")[1];
     if (!payload) return null;
     const json = Buffer.from(payload, "base64url").toString("utf-8");
-    const parsed = JSON.parse(json) as { exp?: unknown };
-    return typeof parsed.exp === "number" ? parsed.exp : null;
+    return JSON.parse(json) as T;
   } catch {
     return null;
   }
+}
+
+export function getJwtExpiry(token: string): number | null {
+  const parsed = getJwtPayload<{ exp?: unknown }>(token);
+  return typeof parsed?.exp === "number" ? parsed.exp : null;
 }
 
 // true kalau token sudah lewat exp atau akan lewat dalam `bufferSeconds`

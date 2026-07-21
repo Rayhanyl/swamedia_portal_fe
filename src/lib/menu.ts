@@ -22,7 +22,11 @@ export async function getMenuSaya(): Promise<MenuItem[]> {
     const res = await fetchBackend("/api/v1/menu-saya");
     const body: ApiResponse<MenuItem[]> = await res.json();
     if (!res.ok || !body.success) {
-      console.warn("[getMenuSaya] backend menolak:", res.status, body);
+      // Bukan console.warn dengan sengaja — 401/403 di sini biasanya cuma
+      // token baru yang belum dikenali (lihat komentar di atas), sudah
+      // ditangani AppSidebar via /api/menu-saya, bukan masalah yang perlu
+      // dibunyikan sebagai warning tiap kali.
+      console.info("[getMenuSaya] backend menolak:", res.status, body);
       return [];
     }
     return body.data ?? [];

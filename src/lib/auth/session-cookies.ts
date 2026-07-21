@@ -1,10 +1,13 @@
 import { cookies } from "next/headers";
 
+import type { LoginResponse } from "@/types/auth";
+
 import {
   ACCESS_TOKEN_COOKIE,
   ID_TOKEN_COOKIE,
   REFRESH_TOKEN_COOKIE,
   REFRESH_TOKEN_MAX_AGE,
+  ROLE_NAME_COOKIE,
   SESSION_COOKIE_OPTIONS,
 } from "./constants";
 
@@ -13,12 +16,7 @@ import {
 // terhadap pencurian token lewat XSS. Hanya kode server Next.js (route handler
 // login/logout & proxy) yang menyentuh nilai token ini.
 
-export async function setSessionCookies(tokens: {
-  accessToken: string;
-  refreshToken?: string;
-  idToken?: string;
-  expiresIn: number; // detik, dari LoginResponse.expiresIn
-}) {
+export async function setSessionCookies(tokens: LoginResponse) {
   const jar = await cookies();
 
   jar.set(ACCESS_TOKEN_COOKIE, tokens.accessToken, {
@@ -39,6 +37,16 @@ export async function setSessionCookies(tokens: {
       maxAge: REFRESH_TOKEN_MAX_AGE,
     });
   }
+
+  // Lihat komentar ROLE_NAME_COOKIE di constants.ts — field ini titipan BE,
+  // bukan claim idToken, jadi disimpan terpisah setiap kali login/refresh.
+  const roleName = tokens.user?.swaportal_role_name;
+  if (typeof roleName === "string" && roleName.length > 0) {
+    jar.set(ROLE_NAME_COOKIE, roleName, {
+      ...SESSION_COOKIE_OPTIONS,
+      maxAge: REFRESH_TOKEN_MAX_AGE,
+    });
+  }
 }
 
 export async function getSessionCookies() {
@@ -47,6 +55,7 @@ export async function getSessionCookies() {
     accessToken: jar.get(ACCESS_TOKEN_COOKIE)?.value,
     refreshToken: jar.get(REFRESH_TOKEN_COOKIE)?.value,
     idToken: jar.get(ID_TOKEN_COOKIE)?.value,
+    roleName: jar.get(ROLE_NAME_COOKIE)?.value,
   };
 }
 
@@ -55,4 +64,5 @@ export async function clearSessionCookies() {
   jar.delete(ACCESS_TOKEN_COOKIE);
   jar.delete(REFRESH_TOKEN_COOKIE);
   jar.delete(ID_TOKEN_COOKIE);
+  jar.delete(ROLE_NAME_COOKIE);
 }

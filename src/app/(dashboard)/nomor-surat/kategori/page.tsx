@@ -1,10 +1,12 @@
-export default function KategoriSuratPage() {
+import { getKategoriSuratWithCount } from "@/lib/kategori-surat";
+import { KategoriSuratTable } from "./_components/kategori-surat-table";
+
+export default async function KategoriSuratPage() {
+  const items = await getKategoriSuratWithCount();
+
   return (
-    <div className="space-y-2 p-6">
-      <h1 className="text-2xl font-bold text-slate-900">Kategori Surat</h1>
-      <p className="text-sm text-slate-500">
-        Halaman ini sedang dalam pengembangan.
-      </p>
+    <div className="space-y-4 p-6">
+      <KategoriSuratTable initialItems={items} />
     </div>
   );
 }

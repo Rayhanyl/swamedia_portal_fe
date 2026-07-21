@@ -44,10 +44,8 @@ async function forward(req: NextRequest, path: string[]) {
       );
     }
     await setSessionCookies({
-      accessToken: refreshed.accessToken,
+      ...refreshed,
       refreshToken: refreshed.refreshToken ?? refreshToken,
-      idToken: refreshed.idToken,
-      expiresIn: refreshed.expiresIn,
     });
     res = await doFetch(refreshed.accessToken);
   }

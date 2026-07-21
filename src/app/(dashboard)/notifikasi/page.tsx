@@ -1,10 +1,15 @@
-export default function NotifikasiPage() {
+import { getNotifikasi, getUnreadCount } from "@/lib/notifikasi";
+import { NotifikasiList } from "./_components/notifikasi-list";
+
+export default async function NotifikasiPage() {
+  const [page, unreadCount] = await Promise.all([
+    getNotifikasi({ page: 1 }),
+    getUnreadCount(),
+  ]);
+
   return (
-    <div className="space-y-2 p-6">
-      <h1 className="text-2xl font-bold text-slate-900">Notifikasi</h1>
-      <p className="text-sm text-slate-500">
-        Halaman ini sedang dalam pengembangan.
-      </p>
+    <div className="p-6">
+      <NotifikasiList initialPage={page} initialUnreadCount={unreadCount} />
     </div>
   );
 }

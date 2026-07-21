@@ -24,39 +24,40 @@ function findTrail(items: MenuItem[], pathname: string): MenuItem[] | null {
 
 export function DashboardBreadcrumb({ menu }: { menu: MenuItem[] }) {
   const pathname = usePathname();
-  const trail = findTrail(menu, pathname);
-  // Elemen pertama trail adalah grup section (mis. "Menu Utama") yang sudah
-  // ditampilkan sebagai label section di sidebar, jadi tidak diulang di sini
-  // — kecuali trail-nya cuma grup itu sendiri (grup tanpa children/leaf).
-  const crumbs = trail && trail.length > 1 ? trail.slice(1) : trail;
+  const crumbs = findTrail(menu, pathname);
 
   if (!crumbs || crumbs.length === 0) {
     return null;
   }
 
+  const pageTitle = crumbs[crumbs.length - 1].namaMenu;
+
   return (
-    <Breadcrumb>
-      <BreadcrumbList>
-        {crumbs.map((item, index) => {
-          const isLast = index === crumbs.length - 1;
-          return (
-            <Fragment key={item.id}>
-              <BreadcrumbItem
-                className={isLast ? undefined : "hidden md:block"}
-              >
-                {isLast ? (
-                  <BreadcrumbPage>{item.namaMenu}</BreadcrumbPage>
-                ) : (
-                  <BreadcrumbLink href={item.path ?? "#"}>
-                    {item.namaMenu}
-                  </BreadcrumbLink>
-                )}
-              </BreadcrumbItem>
-              {!isLast && <BreadcrumbSeparator className="hidden md:block" />}
-            </Fragment>
-          );
-        })}
-      </BreadcrumbList>
-    </Breadcrumb>
+    <div className="flex flex-col gap-0.5">
+      <Breadcrumb>
+        <BreadcrumbList className="gap-1 text-xs">
+          {crumbs.map((item, index) => {
+            const isLast = index === crumbs.length - 1;
+            return (
+              <Fragment key={item.id}>
+                <BreadcrumbItem
+                  className={isLast ? undefined : "hidden md:block"}
+                >
+                  {isLast ? (
+                    <BreadcrumbPage>{item.namaMenu}</BreadcrumbPage>
+                  ) : (
+                    <BreadcrumbLink href={item.path ?? "#"}>
+                      {item.namaMenu}
+                    </BreadcrumbLink>
+                  )}
+                </BreadcrumbItem>
+                {!isLast && <BreadcrumbSeparator className="hidden md:block" />}
+              </Fragment>
+            );
+          })}
+        </BreadcrumbList>
+      </Breadcrumb>
+      <h1 className="text-foreground text-lg font-semibold">{pageTitle}</h1>
+    </div>
   );
 }

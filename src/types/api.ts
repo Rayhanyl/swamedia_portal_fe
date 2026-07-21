@@ -1,10 +1,12 @@
 // Envelope yang membungkus SEMUA response backend swamedia_portal_be
 // (sukses maupun error). Payload sesungguhnya selalu ada di `data`.
 
+// Field & namanya persis documentation/note/api/README.md#paginasi
+// ("page", "limit", "totalItems", "totalPages") — bukan "perPage"/"total".
 export interface Pagination {
   page: number;
-  perPage: number;
-  total: number;
+  limit: number;
+  totalItems: number;
   totalPages: number;
 }
 
