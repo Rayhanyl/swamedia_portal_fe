@@ -1,10 +1,12 @@
-export default function RolePermissionPage() {
+import { getRoleList } from "@/lib/role";
+import { RolePermissionManager } from "./_components/role-permission-manager";
+
+export default async function RolePermissionPage() {
+  const roles = await getRoleList();
+
   return (
-    <div className="space-y-2 p-6">
-      <h1 className="text-2xl font-bold text-slate-900">Role & Permission</h1>
-      <p className="text-sm text-slate-500">
-        Halaman ini sedang dalam pengembangan.
-      </p>
+    <div className="space-y-4 p-6">
+      <RolePermissionManager initialRoles={roles} />
     </div>
   );
 }

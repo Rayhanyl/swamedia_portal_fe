@@ -1,10 +1,12 @@
-export default function KonfigurasiSistemPage() {
+import { getKonfigurasiList } from "@/lib/konfigurasi-sistem";
+import { KonfigurasiTable } from "./_components/konfigurasi-table";
+
+export default async function KonfigurasiSistemPage() {
+  const items = await getKonfigurasiList();
+
   return (
-    <div className="space-y-2 p-6">
-      <h1 className="text-2xl font-bold text-slate-900">Konfigurasi Sistem</h1>
-      <p className="text-sm text-slate-500">
-        Halaman ini sedang dalam pengembangan.
-      </p>
+    <div className="space-y-4 p-6">
+      <KonfigurasiTable initialItems={items} />
     </div>
   );
 }

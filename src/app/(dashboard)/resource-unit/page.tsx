@@ -1,10 +1,22 @@
-export default function ResourceUnitPage() {
+import { getKaryawanDropdown } from "@/lib/karyawan";
+import { getResourceUnitPage } from "@/lib/resource-unit";
+import { getUnitList } from "@/lib/unit";
+import { ResourceUnitTable } from "./_components/resource-unit-table";
+
+export default async function ResourceUnitPage() {
+  const [page, unitList, leadOptions] = await Promise.all([
+    getResourceUnitPage(),
+    getUnitList(),
+    getKaryawanDropdown(),
+  ]);
+
   return (
-    <div className="space-y-2 p-6">
-      <h1 className="text-2xl font-bold text-slate-900">Resource Unit</h1>
-      <p className="text-sm text-slate-500">
-        Halaman ini sedang dalam pengembangan.
-      </p>
+    <div className="space-y-4 p-6">
+      <ResourceUnitTable
+        initialPage={page}
+        unitOptions={unitList.filter((u) => u.status === "AKTIF")}
+        leadOptions={leadOptions}
+      />
     </div>
   );
 }

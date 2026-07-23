@@ -1,10 +1,22 @@
-export default function KaryawanPage() {
+import { getJabatanList } from "@/lib/jabatan";
+import { getKaryawanPage } from "@/lib/karyawan";
+import { getUnitList } from "@/lib/unit";
+import { KaryawanTable } from "./_components/karyawan-table";
+
+export default async function KaryawanPage() {
+  const [page, unitList, jabatanList] = await Promise.all([
+    getKaryawanPage(),
+    getUnitList(),
+    getJabatanList(),
+  ]);
+
   return (
-    <div className="space-y-2 p-6">
-      <h1 className="text-2xl font-bold text-slate-900">Karyawan</h1>
-      <p className="text-sm text-slate-500">
-        Halaman ini sedang dalam pengembangan.
-      </p>
+    <div className="space-y-4 p-6">
+      <KaryawanTable
+        initialPage={page}
+        unitOptions={unitList}
+        jabatanOptions={jabatanList}
+      />
     </div>
   );
 }

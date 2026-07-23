@@ -6,7 +6,6 @@ import {
   ACCESS_TOKEN_COOKIE,
   ID_TOKEN_COOKIE,
   REFRESH_TOKEN_COOKIE,
-  REFRESH_TOKEN_MAX_AGE,
   ROLE_NAME_COOKIE,
   SESSION_COOKIE_OPTIONS,
 } from "./constants";
@@ -25,27 +24,18 @@ export async function setSessionCookies(tokens: LoginResponse) {
   });
 
   if (tokens.refreshToken) {
-    jar.set(REFRESH_TOKEN_COOKIE, tokens.refreshToken, {
-      ...SESSION_COOKIE_OPTIONS,
-      maxAge: REFRESH_TOKEN_MAX_AGE,
-    });
+    jar.set(REFRESH_TOKEN_COOKIE, tokens.refreshToken, SESSION_COOKIE_OPTIONS);
   }
 
   if (tokens.idToken) {
-    jar.set(ID_TOKEN_COOKIE, tokens.idToken, {
-      ...SESSION_COOKIE_OPTIONS,
-      maxAge: REFRESH_TOKEN_MAX_AGE,
-    });
+    jar.set(ID_TOKEN_COOKIE, tokens.idToken, SESSION_COOKIE_OPTIONS);
   }
 
   // Lihat komentar ROLE_NAME_COOKIE di constants.ts — field ini titipan BE,
   // bukan claim idToken, jadi disimpan terpisah setiap kali login/refresh.
   const roleName = tokens.user?.swaportal_role_name;
   if (typeof roleName === "string" && roleName.length > 0) {
-    jar.set(ROLE_NAME_COOKIE, roleName, {
-      ...SESSION_COOKIE_OPTIONS,
-      maxAge: REFRESH_TOKEN_MAX_AGE,
-    });
+    jar.set(ROLE_NAME_COOKIE, roleName, SESSION_COOKIE_OPTIONS);
   }
 }
 

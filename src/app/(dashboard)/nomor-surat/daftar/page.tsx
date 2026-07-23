@@ -1,10 +1,24 @@
-export default function DaftarSuratPage() {
+import { getDaftarSurat } from "@/lib/daftar-surat";
+import { getKategoriSuratList } from "@/lib/kategori-surat";
+import { getProyekDropdown } from "@/lib/proyek";
+import { DaftarSuratTable } from "./_components/daftar-surat-table";
+
+export default async function DaftarSuratPage() {
+  const tahun = new Date().getFullYear();
+  const [page, kategoriList, proyekOptions] = await Promise.all([
+    getDaftarSurat({ tahun }),
+    getKategoriSuratList(),
+    getProyekDropdown(),
+  ]);
+
   return (
-    <div className="space-y-2 p-6">
-      <h1 className="text-2xl font-bold text-slate-900">Daftar Surat</h1>
-      <p className="text-sm text-slate-500">
-        Halaman ini sedang dalam pengembangan.
-      </p>
+    <div className="space-y-4 p-6">
+      <DaftarSuratTable
+        initialPage={page}
+        initialTahun={tahun}
+        kategoriOptions={kategoriList.filter((k) => k.status === "AKTIF")}
+        proyekOptions={proyekOptions}
+      />
     </div>
   );
 }

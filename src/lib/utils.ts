@@ -15,6 +15,17 @@ export function formatCompactNumber(value: number) {
     .replace(/\s/g, "");
 }
 
+// Format nilai uang penuh ala "Rp 1.200.000.000" (locale id-ID, tanpa desimal).
+// Dipakai di tabel laporan finansial/sales yang butuh angka utuh, sementara
+// formatCompactNumber dipakai untuk sumbu/label chart yang butuh ringkas.
+export function formatRupiah(value: number) {
+  return new Intl.NumberFormat("id-ID", {
+    style: "currency",
+    currency: "IDR",
+    maximumFractionDigits: 0,
+  }).format(value);
+}
+
 export function getInitials(name: string): string {
   const parts = name.trim().split(/\s+/).filter(Boolean);
   if (parts.length === 0) return "?";

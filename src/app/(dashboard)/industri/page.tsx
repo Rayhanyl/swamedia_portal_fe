@@ -1,10 +1,12 @@
-export default function IndustriPage() {
+import { getIndustriPage } from "@/lib/industri";
+import { IndustriTable } from "./_components/industri-table";
+
+export default async function IndustriPage() {
+  const page = await getIndustriPage();
+
   return (
-    <div className="space-y-2 p-6">
-      <h1 className="text-2xl font-bold text-slate-900">Industri</h1>
-      <p className="text-sm text-slate-500">
-        Halaman ini sedang dalam pengembangan.
-      </p>
+    <div className="space-y-4 p-6">
+      <IndustriTable initialPage={page} />
     </div>
   );
 }

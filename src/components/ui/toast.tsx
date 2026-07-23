@@ -20,7 +20,7 @@ function ToastViewport({ className, ...props }: ToastPrimitive.Viewport.Props) {
     <ToastPrimitive.Viewport
       data-slot="toast-viewport"
       className={cn(
-        "fixed right-4 bottom-4 z-100 flex w-[calc(100vw-2rem)] max-w-sm flex-col gap-2 outline-none sm:right-6 sm:bottom-6",
+        "fixed top-4 right-4 z-100 flex w-[calc(100vw-2rem)] max-w-sm flex-col gap-2 outline-none sm:top-6 sm:right-6",
         className,
       )}
       {...props}
@@ -35,7 +35,7 @@ function ToastItem({ toast }: { toast: ToastPrimitive.Root.ToastObject }) {
     <ToastPrimitive.Root
       data-slot="toast"
       toast={toast}
-      className="bg-popover text-popover-foreground ring-foreground/10 data-ending-style:fade-out-0 data-ending-style:slide-out-to-right-4 data-starting-style:fade-in-0 data-starting-style:slide-in-from-bottom-2 data-ending-style:animate-out data-starting-style:animate-in data-[type=error]:ring-destructive/40 pointer-events-auto relative flex w-full items-start gap-3 rounded-xl p-4 pr-9 shadow-lg ring-1 data-[type=success]:ring-emerald-500/30"
+      className="bg-popover text-popover-foreground ring-foreground/10 data-ending-style:fade-out-0 data-ending-style:slide-out-to-right-4 data-starting-style:fade-in-0 data-starting-style:slide-in-from-top-2 data-ending-style:animate-out data-starting-style:animate-in data-[type=error]:ring-destructive/40 pointer-events-auto relative flex w-full items-start gap-3 rounded-xl p-4 pr-9 shadow-lg ring-1 data-[type=success]:ring-emerald-500/30"
     >
       <ToastPrimitive.Content className="flex flex-1 items-start gap-3">
         {Icon && (
@@ -84,7 +84,7 @@ function Toaster() {
 // dari mana saja untuk memicu notifikasi.
 function ToastProvider({ children }: { children: React.ReactNode }) {
   return (
-    <ToastPrimitive.Provider toastManager={toastManager}>
+    <ToastPrimitive.Provider toastManager={toastManager} timeout={5000}>
       {children}
       <Toaster />
     </ToastPrimitive.Provider>

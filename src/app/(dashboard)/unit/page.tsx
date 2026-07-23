@@ -1,10 +1,12 @@
-export default function UnitPage() {
+import { getUnitList, getUnitPage } from "@/lib/unit";
+import { UnitTable } from "./_components/unit-table";
+
+export default async function UnitPage() {
+  const [page, allUnits] = await Promise.all([getUnitPage(), getUnitList()]);
+
   return (
-    <div className="space-y-2 p-6">
-      <h1 className="text-2xl font-bold text-slate-900">Unit (Organisasi)</h1>
-      <p className="text-sm text-slate-500">
-        Halaman ini sedang dalam pengembangan.
-      </p>
+    <div className="space-y-4 p-6">
+      <UnitTable initialPage={page} allUnits={allUnits} />
     </div>
   );
 }

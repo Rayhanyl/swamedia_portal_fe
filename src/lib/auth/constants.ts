@@ -17,9 +17,3 @@ export const SESSION_COOKIE_OPTIONS = {
   sameSite: "lax" as const,
   path: "/",
 };
-
-// Refresh token berumur jauh lebih panjang dari access token di WSO2 IS.
-// maxAge di sini sengaja dilebihkan supaya kevalidan token yang menentukan
-// kapan sesi berakhir (lewat respons 401 backend), bukan cookie expiry yang
-// menebak-nebak umur refresh token.
-export const REFRESH_TOKEN_MAX_AGE = 60 * 60 * 24 * 30;

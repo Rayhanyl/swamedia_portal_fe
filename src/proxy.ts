@@ -5,7 +5,6 @@ import {
   ACCESS_TOKEN_COOKIE,
   ID_TOKEN_COOKIE,
   REFRESH_TOKEN_COOKIE,
-  REFRESH_TOKEN_MAX_AGE,
   ROLE_NAME_COOKIE,
   SESSION_COOKIE_OPTIONS,
 } from "@/lib/auth/constants";
@@ -53,23 +52,17 @@ function applySessionCookies(
   response.cookies.set(
     REFRESH_TOKEN_COOKIE,
     tokens.refreshToken ?? fallbackRefreshToken,
-    { ...SESSION_COOKIE_OPTIONS, maxAge: REFRESH_TOKEN_MAX_AGE },
+    SESSION_COOKIE_OPTIONS,
   );
   if (tokens.idToken) {
-    response.cookies.set(ID_TOKEN_COOKIE, tokens.idToken, {
-      ...SESSION_COOKIE_OPTIONS,
-      maxAge: REFRESH_TOKEN_MAX_AGE,
-    });
+    response.cookies.set(ID_TOKEN_COOKIE, tokens.idToken, SESSION_COOKIE_OPTIONS);
   }
 
   // Lihat komentar ROLE_NAME_COOKIE di constants.ts — dititipkan BE, bukan
   // claim idToken, jadi harus ditulis ulang di sini juga saat refresh.
   const roleName = tokens.user?.swaportal_role_name;
   if (typeof roleName === "string" && roleName.length > 0) {
-    response.cookies.set(ROLE_NAME_COOKIE, roleName, {
-      ...SESSION_COOKIE_OPTIONS,
-      maxAge: REFRESH_TOKEN_MAX_AGE,
-    });
+    response.cookies.set(ROLE_NAME_COOKIE, roleName, SESSION_COOKIE_OPTIONS);
   }
 }
 

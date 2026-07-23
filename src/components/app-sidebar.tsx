@@ -44,6 +44,17 @@ function useMenuWithBackgroundRetry(initialMenu: MenuItem[]) {
     async function retry() {
       try {
         const res = await fetch("/api/menu-saya", { cache: "no-store" });
+        // /api/menu-saya sudah retry berkali-kali dengan jeda di server (lihat
+        // komentarnya) untuk menyerap kasus "token baru belum dikenali". Kalau
+        // setelah semua percobaan itu masih 401, token memang sudah tidak
+        // valid (expired/revoked) — bukan lagi race sesaat setelah login, jadi
+        // paksa logout ke /login, sama seperti pola di lib/api-client.ts.
+        if (res.status === 401) {
+          if (!cancelled && typeof window !== "undefined") {
+            window.location.href = "/login";
+          }
+          return;
+        }
         const body: ApiResponse<MenuItem[]> = await res.json();
         if (
           !cancelled &&

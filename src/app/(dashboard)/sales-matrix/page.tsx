@@ -1,10 +1,21 @@
-export default function SalesMatrixPage() {
+import { getSalesMatrixReport } from "@/lib/sales-matrix";
+import { getUnitList } from "@/lib/unit";
+import { SalesMatrixReport } from "./_components/sales-matrix-report";
+
+export default async function SalesMatrixPage() {
+  const tahun = new Date().getFullYear();
+  const [rows, units] = await Promise.all([
+    getSalesMatrixReport({ tahun }),
+    getUnitList(),
+  ]);
+
   return (
-    <div className="space-y-2 p-6">
-      <h1 className="text-2xl font-bold text-slate-900">Sales Matrix</h1>
-      <p className="text-sm text-slate-500">
-        Halaman ini sedang dalam pengembangan.
-      </p>
+    <div className="space-y-4 p-6">
+      <SalesMatrixReport
+        initialRows={rows}
+        initialTahun={tahun}
+        unitOptions={units}
+      />
     </div>
   );
 }
